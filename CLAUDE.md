@@ -24,20 +24,41 @@ aggregates. Delivery is planned in four phases (see the PRD for full detail):
 - **Phase III — Headless Course Player:** JSON-manifest content, prefetching, offline video.
 - **Phase IV — Micro-credentials:** cryptographic certificates + standalone verification portal.
 
-## Planned stack
+## Decided stack
 
-- **Frontend:** React or Vue PWA with Workbox service worker; IndexedDB via the `idb` library.
-- **API:** Node.js or Go on Azure Container Apps (scales to zero / to peak).
-- **Database:** PostgreSQL using **closure tables** for hierarchy.
-- **Cache:** Redis.
-- **Async jobs:** queue-based workers (bulk CSV import, sync processing).
-- **Object storage:** Azure Blob Storage (raw uploads, video segments); MinIO for on-prem.
-- **Observability:** OpenTelemetry (includes a "sync heartbeat" telemetry pulse from the SW).
-- **Crypto:** Web Crypto API (RSA-OAEP) in the browser; KMS/HSM holds private keys server-side.
+The stack was assessed and decided in [docs/TECHSTACK.md](docs/TECHSTACK.md) — read it
+before scaffolding; it supersedes the PRD's looser "React or Vue / Node or Go" options.
+Summary: Turborepo + pnpm monorepo with four deployables — `apps/web` (Next.js 16 PWA;
+learner surface is a fully client-rendered precached shell via Serwist, no RSC/Server
+Actions in offline-critical paths), `apps/api` (ONE NestJS 11 modular monolith with
+CI-enforced module seams), `apps/worker` (BullMQ), `apps/verify` (standalone read-only
+credential verifier, Phase IV) — on PostgreSQL 16 only (closure table + partitioned
+LWW upsert tables + JSONB; **no MongoDB**), Redis/Valkey, and S3-compatible object
+storage behind an ObjectStorage port (real Azure Blob driver too — Azure Blob is not
+S3-compatible). Shared `packages/*` hold the Zod schemas, sync protocol, offline
+store, crypto, and prefetch logic consumed identically by SW, client, and server.
+
+**PRD corrections verified during the assessment (see TECHSTACK.md §3 — do not
+re-propagate the original claims):**
+
+- Background Sync API is **Chromium-only** — it does not exist on iOS Safari. The sync
+  engine is an IndexedDB outbox with app-level triggers; iOS is a documented degraded
+  mode ("saved on device, uploads while app is open") with Web Push nudges.
+- Direct RSA-OAEP caps at 190 bytes (2048-bit): use **envelope encryption** (AES-GCM
+  data key wrapped with the per-exam RSA-OAEP public key), not per-answer RSA.
+- Credentials are signed with **Ed25519** Data Integrity proofs (`eddsa-rdfc-2022`) per
+  Open Badges 3.0 conformance — not RSA-PSS as the PRD says.
+- Offline video: a blob URL of an HLS playlist does not play on Android — use
+  per-segment IndexedDB blobs with hls.js custom loaders or Shaka Player offline.
+- `navigator.connection` is Chromium-only — prefetch tiering goes through a
+  NetworkProfile abstraction with a measured-throughput/conservative fallback.
+- Use **Serwist**, not raw Workbox or next-pwa.
 
 Annex A of the PRD maps every component to AWS / GCP / on-prem equivalents — honor that
-mapping so infrastructure stays portable (e.g. code targets the S3-compatible API so
-Azure Blob / S3 / MinIO are interchangeable).
+mapping so infrastructure stays portable (storage goes through the ObjectStorage port;
+amend the on-prem jobs row from "RabbitMQ/Celery" to "Redis/Valkey + BullMQ").
+
+The UI/UX design handoff prompt lives at [docs/DESIGN_PROMPT.md](docs/DESIGN_PROMPT.md).
 
 ## Architecture concepts that span multiple components
 
