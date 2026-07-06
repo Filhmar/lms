@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo } from "next/font/google";
+import "@rl/ui/styles.css";
 import "./globals.css";
+import { DemoProvider } from "@/lib/demo";
+import { DevHarness } from "@/components/dev-harness";
 
 const archivo = Archivo({
   subsets: ["latin"],
@@ -29,7 +32,12 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={archivo.variable} suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        <DemoProvider>
+          {children}
+          <DevHarness />
+        </DemoProvider>
+      </body>
     </html>
   );
 }
