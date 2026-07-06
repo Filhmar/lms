@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* Calm Shelter tokens (placeholder — replaced by the design-system implementation) */
+:root {
+  --color-canvas: #f1f5fb;
+  --color-ink: #17233f;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-archivo), system-ui, sans-serif;
+}
