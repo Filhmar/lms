@@ -4,11 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Turborepo + pnpm monorepo. Implemented so far: `packages/ui` (the "Calm Shelter"
-design system from the Claude Design export) and `frontend` (Next.js 16 PWA frontend
-with all designed screens, running on demo fixtures — no backend yet). The PRD lives
-at [docs/plan.md](docs/plan.md); the stack decision at [docs/TECHSTACK.md](docs/TECHSTACK.md).
-`apps/api`, `apps/worker`, and `apps/verify` are not yet scaffolded.
+Turborepo + pnpm monorepo. Implemented so far:
+
+- `packages/ui` — the "Calm Shelter" design system from the Claude Design export.
+- `packages/schemas` — shared Zod v4 DTOs/enums (`@rl/schemas`), consumed by both
+  frontend and backend (source-only, `erasableSyntaxOnly`).
+- `frontend` — Next.js 16 PWA with all designed screens, running on demo fixtures
+  (not yet wired to the API).
+- `backend` — Phase I NestJS 11 modular monolith (`/api/v1`): stateless auth
+  (RS256 JWT + JWKS, rotating hashed refresh tokens with reuse detection, Argon2id),
+  org-hierarchy (closure table + Redis-cached descendant sets, lateral isolation),
+  provisioning (202 + BullMQ job, COPY into UNLOGGED staging), Prisma 7
+  (`@prisma/adapter-pg`, multiSchema `auth`/`org`/`prov` on ONE Postgres),
+  ObjectStorage port with a local-fs driver. Modules expose a public `index.ts`
+  contract — never import another module's internals.
+
+`worker` (separate BullMQ deployable) and `verify` (Phase IV credential verifier)
+are not yet scaffolded; the provisioning worker currently runs in-process in the
+backend and is the documented extraction candidate. The PRD lives at
+[docs/plan.md](docs/plan.md); the stack decision at [docs/TECHSTACK.md](docs/TECHSTACK.md)
+(directory naming adopted here — `frontend`/`backend` — supersedes its `apps/*` sketch).
 
 ### Commands
 
@@ -18,7 +33,15 @@ pnpm dev                # turbo dev (all apps)
 pnpm build              # turbo build
 pnpm typecheck          # tsc --noEmit in every workspace
 cd frontend && pnpm dev # just the web app (Next.js, port 3000)
+
+# backend (NestJS, port 3200 by default in dev scripts)
+backend/scripts/dev-services.sh   # local Postgres 16 (:55432) + Redis (:56379) + dev JWT keys
+cd backend && pnpm prisma migrate dev && pnpm seed   # migrate + idempotent DepEd demo seed
+cd backend && pnpm dev            # nest start --watch
 ```
+
+Seeded logins: `admin@deped.gov.ph` / `ChangeMe!2026` (central_admin),
+`ana.reyes@deped.gov.ph` / `Student!2026` (student @ San Isidro NHS).
 
 ### Frontend conventions (frontend + packages/ui)
 
@@ -54,8 +77,8 @@ The stack was assessed and decided in [docs/TECHSTACK.md](docs/TECHSTACK.md) —
 before scaffolding; it supersedes the PRD's looser "React or Vue / Node or Go" options.
 Summary: Turborepo + pnpm monorepo with four deployables — `frontend` (Next.js 16 PWA;
 learner surface is a fully client-rendered precached shell via Serwist, no RSC/Server
-Actions in offline-critical paths), `apps/api` (ONE NestJS 11 modular monolith with
-CI-enforced module seams), `apps/worker` (BullMQ), `apps/verify` (standalone read-only
+Actions in offline-critical paths), `backend` (ONE NestJS 11 modular monolith with
+CI-enforced module seams), `worker` (BullMQ), `verify` (standalone read-only
 credential verifier, Phase IV) — on PostgreSQL 16 only (closure table + partitioned
 LWW upsert tables + JSONB; **no MongoDB**), Redis/Valkey, and S3-compatible object
 storage behind an ObjectStorage port (real Azure Blob driver too — Azure Blob is not

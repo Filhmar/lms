@@ -215,6 +215,11 @@ Mongo/Postgres split structurally cannot give you that, and the bug class it pre
 
 ### 5.4 Monorepo layout
 
+> **Naming as adopted (July 2026):** the implemented repo uses `frontend/` for
+> `apps/web` and `backend/` for `apps/api`; the future deployables become `worker/`
+> and `verify/`. Everything else in this section applies unchanged — only the
+> directory names differ from the sketch below.
+
 ```
 resilient-learn/
 ├── apps/

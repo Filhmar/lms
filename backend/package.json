@@ -1,0 +1,48 @@
+{
+  "name": "@rl/backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Resilient-Learn Phase I backend — NestJS 11 modular monolith (auth, org-hierarchy, provisioning)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "nest start --watch",
+    "build": "nest build",
+    "start": "node dist/main",
+    "typecheck": "tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "seed": "tsx scripts/seed.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "@prisma/adapter-pg": "^7.0.0",
+    "@prisma/client": "^7.0.0",
+    "@rl/schemas": "workspace:*",
+    "argon2": "^0.44.0",
+    "bullmq": "^5.0.0",
+    "csv-parse": "^6.0.0",
+    "helmet": "^8.0.0",
+    "ioredis": "5.10.1",
+    "multer": "^2.0.0",
+    "pg": "^8.13.0",
+    "pg-copy-streams": "^7.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@types/express": "^5.0.0",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "@types/pg-copy-streams": "^1.2.5",
+    "prisma": "^7.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}

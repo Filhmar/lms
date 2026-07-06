@@ -1,0 +1,153 @@
+// Resilient-Learn Phase I schema — one PostgreSQL database, schema-per-module
+// ownership (auth.*, org.*, prov.*). Fully qualify these tables in raw SQL.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+// Connection URL lives in prisma.config.ts (migrate) and the PrismaPg driver
+// adapter (runtime) — Prisma 7 removed `url` from schema files.
+datasource db {
+  provider = "postgresql"
+  schemas  = ["auth", "org", "prov"]
+}
+
+/* --------------------------------- org ---------------------------------- */
+
+enum ScopeLevel {
+  central
+  region
+  division
+  district
+  school
+
+  @@map("scope_level")
+  @@schema("org")
+}
+
+model Scope {
+  id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  level     ScopeLevel
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  descendants ScopeHierarchy[] @relation("ancestor")
+  ancestors   ScopeHierarchy[] @relation("descendant")
+  users       User[]
+
+  @@map("scopes")
+  @@schema("org")
+}
+
+/// Closure table: every ancestor/descendant pair, incl. self-rows (depth 0).
+/// Subtree + breadcrumb become single non-recursive index scans.
+model ScopeHierarchy {
+  ancestorId   String @map("ancestor_id") @db.Uuid
+  descendantId String @map("descendant_id") @db.Uuid
+  depth        Int
+
+  ancestor   Scope @relation("ancestor", fields: [ancestorId], references: [id], onDelete: Cascade)
+  descendant Scope @relation("descendant", fields: [descendantId], references: [id], onDelete: Cascade)
+
+  @@id([ancestorId, descendantId])
+  // Reverse covering index: breadcrumb ("all ancestors of X") walks descendant → ancestor.
+  @@index([descendantId, ancestorId])
+  @@map("scope_hierarchy")
+  @@schema("org")
+}
+
+/* --------------------------------- auth --------------------------------- */
+
+enum UserRole {
+  student
+  teacher
+  school_admin
+  district_admin
+  division_admin
+  region_admin
+  central_admin
+
+  @@map("user_role")
+  @@schema("auth")
+}
+
+enum UserStatus {
+  pending_activation
+  active
+  disabled
+
+  @@map("user_status")
+  @@schema("auth")
+}
+
+model User {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String     @unique
+  fullName     String     @map("full_name")
+  role         UserRole
+  scopeId      String     @map("scope_id") @db.Uuid
+  status       UserStatus @default(pending_activation)
+  passwordHash String?    @map("password_hash")
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  scope         Scope          @relation(fields: [scopeId], references: [id])
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+  @@schema("auth")
+}
+
+/// The ONLY stateful auth artifact (stateless JWT everywhere else — never a
+/// session table). Rows are touched only on refresh/logout.
+model RefreshToken {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  /// sha256 hex of the opaque token — the raw token is never stored.
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  /// Rotation chain: id of the token that superseded this one (reuse detection).
+  replacedBy String?   @map("replaced_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@map("refresh_tokens")
+  @@schema("auth")
+}
+
+/* --------------------------------- prov --------------------------------- */
+
+enum JobStatus {
+  queued
+  processing
+  completed
+  failed
+
+  @@map("job_status")
+  @@schema("prov")
+}
+
+/// Source of truth for job state (BullMQ is transport only — a Redis failover
+/// must never lose import state).
+model ProvisioningJob {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  kind          String    @default("bulk_import")
+  status        JobStatus @default(queued)
+  targetScopeId String    @map("target_scope_id") @db.Uuid
+  filePath      String    @map("file_path")
+  total         Int       @default(0)
+  success       Int       @default(0)
+  failed        Int       @default(0)
+  /// [{ row, reason }]
+  errors        Json      @default("[]")
+  createdBy     String    @map("created_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("jobs")
+  @@schema("prov")
+}
