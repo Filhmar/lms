@@ -13,6 +13,8 @@ const GROUPS: { title: string; links: { href: string; label: string }[] }[] = [
       { href: "/admin/hierarchy", label: "Hierarchy console" },
       { href: "/admin/import", label: "CSV import wizard" },
       { href: "/admin/import/job", label: "Import job progress" },
+      { href: "/admin/credentials", label: "Admin credential console" },
+      { href: "/admin/health", label: "National sync health" },
     ],
   },
   {
@@ -36,8 +38,11 @@ const GROUPS: { title: string; links: { href: string; label: string }[] }[] = [
     links: [
       { href: "/wallet", label: "Credential wallet" },
       { href: "/wallet/science-star", label: "Badge detail" },
+      { href: "/wallet/science-star-q3", label: "Badge detail (revoked)" },
       { href: "/certificate", label: "Certificate render" },
       { href: "/verify", label: "Public verification portal" },
+      { href: "/verify/8KX2-94QF", label: "Verify result (verified)" },
+      { href: "/verify/8KX2-94QG", label: "Verify result (revoked)" },
     ],
   },
 ];
