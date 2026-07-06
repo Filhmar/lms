@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Repository status
 
 Turborepo + pnpm monorepo. Implemented so far: `packages/ui` (the "Calm Shelter"
-design system from the Claude Design export) and `apps/web` (Next.js 16 PWA frontend
+design system from the Claude Design export) and `frontend` (Next.js 16 PWA frontend
 with all designed screens, running on demo fixtures — no backend yet). The PRD lives
 at [docs/plan.md](docs/plan.md); the stack decision at [docs/TECHSTACK.md](docs/TECHSTACK.md).
 `apps/api`, `apps/worker`, and `apps/verify` are not yet scaffolded.
@@ -17,19 +17,19 @@ pnpm install            # install all workspaces
 pnpm dev                # turbo dev (all apps)
 pnpm build              # turbo build
 pnpm typecheck          # tsc --noEmit in every workspace
-cd apps/web && pnpm dev # just the web app (Next.js, port 3000)
+cd frontend && pnpm dev # just the web app (Next.js, port 3000)
 ```
 
-### Frontend conventions (apps/web + packages/ui)
+### Frontend conventions (frontend + packages/ui)
 
 - Design tokens are CSS custom properties in `packages/ui/src/styles.css`
   (light + `[data-theme="dark"]`); components use `rl-*` classes. Dark values not
   specified in the design export are derived and flagged with comments.
-- All screens run on demo fixtures (`apps/web/lib/fixtures.ts` — Ana Reyes /
+- All screens run on demo fixtures (`frontend/lib/fixtures.ts` — Ana Reyes /
   San Isidro NHS dataset) and react to the demo harness
-  (`apps/web/lib/demo.tsx`: theme, connectivity, iosMode, batteryLow — the ⚙
+  (`frontend/lib/demo.tsx`: theme, connectivity, iosMode, batteryLow — the ⚙
   button bottom-right). No network calls anywhere yet.
-- Microcopy comes from `apps/web/lib/copy.ts` (verbatim from the design's state
+- Microcopy comes from `frontend/lib/copy.ts` (verbatim from the design's state
   language; never write "sync"/"server"/"error" in student-facing copy).
 - `/screens` is the review index of every implemented screen.
 - The exam journey persists to localStorage key `resilient-learn-exam-demo`;
@@ -52,7 +52,7 @@ aggregates. Delivery is planned in four phases (see the PRD for full detail):
 
 The stack was assessed and decided in [docs/TECHSTACK.md](docs/TECHSTACK.md) — read it
 before scaffolding; it supersedes the PRD's looser "React or Vue / Node or Go" options.
-Summary: Turborepo + pnpm monorepo with four deployables — `apps/web` (Next.js 16 PWA;
+Summary: Turborepo + pnpm monorepo with four deployables — `frontend` (Next.js 16 PWA;
 learner surface is a fully client-rendered precached shell via Serwist, no RSC/Server
 Actions in offline-critical paths), `apps/api` (ONE NestJS 11 modular monolith with
 CI-enforced module seams), `apps/worker` (BullMQ), `apps/verify` (standalone read-only
