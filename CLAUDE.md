@@ -4,12 +4,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This repo is **pre-implementation**. It currently contains only the product/architecture
-spec at [docs/plan.md](docs/plan.md) (the PRD for "Resilient-Learn"). `README.md` and
-`.gitignore` are empty and there are no commits yet. There is no application code, no
-build system, and no tests. When scaffolding the codebase, derive structure and stack
-choices from the PRD unless the user directs otherwise, and update this file with real
-build/lint/test commands once they exist.
+Turborepo + pnpm monorepo. Implemented so far: `packages/ui` (the "Calm Shelter"
+design system from the Claude Design export) and `apps/web` (Next.js 16 PWA frontend
+with all designed screens, running on demo fixtures — no backend yet). The PRD lives
+at [docs/plan.md](docs/plan.md); the stack decision at [docs/TECHSTACK.md](docs/TECHSTACK.md).
+`apps/api`, `apps/worker`, and `apps/verify` are not yet scaffolded.
+
+### Commands
+
+```bash
+pnpm install            # install all workspaces
+pnpm dev                # turbo dev (all apps)
+pnpm build              # turbo build
+pnpm typecheck          # tsc --noEmit in every workspace
+cd apps/web && pnpm dev # just the web app (Next.js, port 3000)
+```
+
+### Frontend conventions (apps/web + packages/ui)
+
+- Design tokens are CSS custom properties in `packages/ui/src/styles.css`
+  (light + `[data-theme="dark"]`); components use `rl-*` classes. Dark values not
+  specified in the design export are derived and flagged with comments.
+- All screens run on demo fixtures (`apps/web/lib/fixtures.ts` — Ana Reyes /
+  San Isidro NHS dataset) and react to the demo harness
+  (`apps/web/lib/demo.tsx`: theme, connectivity, iosMode, batteryLow — the ⚙
+  button bottom-right). No network calls anywhere yet.
+- Microcopy comes from `apps/web/lib/copy.ts` (verbatim from the design's state
+  language; never write "sync"/"server"/"error" in student-facing copy).
+- `/screens` is the review index of every implemented screen.
+- The exam journey persists to localStorage key `resilient-learn-exam-demo`;
+  reloading mid-exam exercises crash recovery.
 
 ## What we are building
 
