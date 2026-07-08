@@ -1,5 +1,5 @@
-// Resilient-Learn Phase I schema — one PostgreSQL database, schema-per-module
-// ownership (auth.*, org.*, prov.*). Fully qualify these tables in raw SQL.
+// Resilient-Learn Phase I+II schema — one PostgreSQL database, schema-per-module
+// ownership (auth.*, org.*, prov.*, cbt.*). Fully qualify these tables in raw SQL.
 
 generator client {
   provider     = "prisma-client"
@@ -11,7 +11,7 @@ generator client {
 // adapter (runtime) — Prisma 7 removed `url` from schema files.
 datasource db {
   provider = "postgresql"
-  schemas  = ["auth", "org", "prov"]
+  schemas  = ["auth", "org", "prov", "cbt"]
 }
 
 /* --------------------------------- org ---------------------------------- */
@@ -36,6 +36,7 @@ model Scope {
   descendants ScopeHierarchy[] @relation("ancestor")
   ancestors   ScopeHierarchy[] @relation("descendant")
   users       User[]
+  exams       Exam[]
 
   @@map("scopes")
   @@schema("org")
@@ -98,6 +99,7 @@ model User {
   scope         Scope          @relation(fields: [scopeId], references: [id])
   refreshTokens RefreshToken[]
   otpRequests   OtpRequest[]
+  attempts      Attempt[]
 
   @@index([phone])
   @@map("users")
@@ -176,4 +178,132 @@ model ProvisioningJob {
 
   @@map("jobs")
   @@schema("prov")
+}
+
+/* --------------------------------- cbt ---------------------------------- */
+
+/// Phase II computer-based testing. Visibility follows downward inheritance:
+/// an exam owned by an ancestor scope is visible to every descendant scope
+/// (join on org.scope_hierarchy); siblings are laterally isolated.
+model Exam {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title           String
+  ownerScopeId    String   @map("owner_scope_id") @db.Uuid
+  /// 'draft' | 'published' (CHECK-constrained in the migration).
+  status          String   @default("draft")
+  version         Int      @default(1)
+  durationMinutes Int      @map("duration_minutes")
+  opensAt         DateTime @map("opens_at") @db.Timestamptz(6)
+  closesAt        DateTime @map("closes_at") @db.Timestamptz(6)
+  /// Versioned per examination (exam_v1 ↔ public_key_v1) so a compromised
+  /// key never exposes exam history.
+  keyVersion      Int      @default(1) @map("key_version")
+  publicKeyPem    String   @map("public_key_pem")
+  /// ⚠️ DEV-GRADE KEY CUSTODY ⚠️ — the per-exam RSA private key sits in the
+  /// database in PLAINTEXT. Production custody is a KMS (Azure Key Vault /
+  /// AWS KMS / Vault) behind the KeyProvider port (driver 'db' today); the
+  /// key must then never leave the KMS. Never expose this column through any
+  /// API response or log.
+  privateKeyPem   String   @map("private_key_pem")
+  createdBy       String   @map("created_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ownerScope Scope      @relation(fields: [ownerScopeId], references: [id])
+  questions  Question[]
+  attempts   Attempt[]
+
+  @@index([ownerScopeId, status])
+  @@map("exams")
+  @@schema("cbt")
+}
+
+model Question {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  examId String @map("exam_id") @db.Uuid
+  seq    Int
+  /// 'mcq' | 'tf' | 'ident' (CHECK-constrained in the migration).
+  type   String
+  text   String
+  /// [{ id, text }] for mcq/tf; null for ident.
+  options Json?
+  /// mcq/tf: the correct option id (string). ident: array of accepted
+  /// strings, matched case/whitespace-insensitively. NEVER serialized into
+  /// any API response — package/list queries must not select this column.
+  correct Json
+  weight  Int  @default(1)
+
+  exam    Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  answers Answer[]
+
+  @@unique([examId, seq])
+  @@map("questions")
+  @@schema("cbt")
+}
+
+/// One attempt per exam per student (PRD "one attempt") — UNIQUE(exam, user).
+model Attempt {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  examId               String    @map("exam_id") @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  /// 'in_progress' | 'submitted' | 'grading' | 'graded' (CHECK in migration).
+  state                String    @default("in_progress")
+  startedAt            DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  /// Server-anchored wall-clock deadline: started + duration, capped at closes_at.
+  deadlineAt           DateTime  @map("deadline_at") @db.Timestamptz(6)
+  submittedAt          DateTime? @map("submitted_at") @db.Timestamptz(6)
+  answeredCountClaimed Int?      @map("answered_count_claimed")
+  scoreRaw             Int?      @map("score_raw")
+  scoreTotal           Int?      @map("score_total")
+  gradedAt             DateTime? @map("graded_at") @db.Timestamptz(6)
+
+  exam    Exam     @relation(fields: [examId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+  answers Answer[]
+
+  @@unique([examId, userId])
+  @@index([userId])
+  @@map("attempts")
+  @@schema("cbt")
+}
+
+/// LWW-Element-Set answer state — merged by ONE atomic ON CONFLICT upsert
+/// (TECHSTACK §5.3): keep the higher client_ts; server stamps received_at;
+/// client_ts is advisory within the server-validated attempt window.
+/// Partitioning by exam window (archive to object storage after grading) is
+/// the documented scale valve — DEFERRED until national-scale load demands
+/// it; today one table with the composite PK index is plenty.
+model Answer {
+  attemptId  String   @map("attempt_id") @db.Uuid
+  questionId String   @map("question_id") @db.Uuid
+  /// EncryptedEnvelope { alg: 'RSA-OAEP-256+A256GCM', keyVersion, wrappedKey, iv, ciphertext }
+  /// — envelope-encrypted CLIENT-side; the server stores ciphertext only and
+  /// decrypts solely in the grading worker via the KeyProvider.
+  envelope   Json
+  clientTs   BigInt   @map("client_ts")
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  /// Client-generated idempotency key: replayed answer events dedupe here.
+  eventId    String   @unique @map("event_id") @db.Uuid
+
+  attempt  Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@id([attemptId, questionId])
+  @@map("answers")
+  @@schema("cbt")
+}
+
+/// Thin idempotency ledger + audit trail for sync events. Submit events
+/// dedupe against this table; answer events dedupe via answers.event_id too.
+/// attempt_id is deliberately un-FK'd — rejected events may reference
+/// attempts that don't exist.
+model SyncEventRecord {
+  eventId    String   @id @map("event_id") @db.Uuid
+  kind       String
+  attemptId  String   @map("attempt_id") @db.Uuid
+  outcome    String
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([attemptId])
+  @@map("sync_events")
+  @@schema("cbt")
 }
