@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo } from "next/font/google";
+import { SerwistProvider } from "@serwist/turbopack/react";
 import "@rl/ui/styles.css";
 import "./globals.css";
 import { SessionProvider } from "@/lib/session";
+import { SwUpdate } from "@/components/sw-update";
 
 const archivo = Archivo({
   subsets: ["latin"],
@@ -32,7 +34,17 @@ export default function RootLayout({
   return (
     <html lang="en" className={archivo.variable} suppressHydrationWarning>
       <body>
-        <SessionProvider>{children}</SessionProvider>
+        {/* SW registration (scope "/" via Service-Worker-Allowed from the
+            /serwist route). Disabled in dev so `pnpm dev` stays fast;
+            reloadOnOnline stays off — never auto-reload a learner's page. */}
+        <SerwistProvider
+          swUrl="/serwist/sw.js"
+          disable={process.env.NODE_ENV === "development"}
+          reloadOnOnline={false}
+        >
+          <SessionProvider>{children}</SessionProvider>
+          <SwUpdate />
+        </SerwistProvider>
       </body>
     </html>
   );

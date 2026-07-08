@@ -1,3 +1,4 @@
+import { withSerwist } from "@serwist/turbopack";
 import type { NextConfig } from "next";
 
 /**
@@ -31,4 +32,6 @@ const nextConfig: NextConfig = {
     : {}),
 };
 
-export default nextConfig;
+// withSerwist only marks esbuild as a server-external package for the
+// /serwist route handler — rewrites/output/transpilePackages are untouched.
+export default withSerwist(nextConfig);

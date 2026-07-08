@@ -11,12 +11,15 @@
   "dependencies": {
     "@rl/schemas": "workspace:*",
     "@rl/ui": "workspace:*",
+    "@serwist/turbopack": "9.5.11",
     "next": "^16.2.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "serwist": "9.5.11"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",
+    "esbuild": "0.28.1",
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
