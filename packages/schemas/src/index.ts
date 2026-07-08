@@ -287,6 +287,131 @@ export type ScopeStatsResponse = z.infer<typeof ScopeStatsResponseSchema>;
 /** Required CSV header for bulk import (order-exact). */
 export const CSV_IMPORT_HEADER = ["email", "full_name", "role", "phone"] as const;
 
+/* ----------------------- Phase II — CBT & sync ----------------------- */
+
+export const QuestionTypes = ["mcq", "tf", "ident"] as const;
+export const QuestionTypeSchema = z.enum(QuestionTypes);
+export type QuestionType = z.infer<typeof QuestionTypeSchema>;
+
+/** Envelope encryption: AES-256-GCM data key wrapped with the per-exam
+ *  RSA-OAEP-256 public key. Direct RSA is capped at 190 bytes — never
+ *  encrypt payloads with RSA directly (TECHSTACK §3). All fields base64. */
+export const EncryptedEnvelopeSchema = z.object({
+  alg: z.literal("RSA-OAEP-256+A256GCM"),
+  keyVersion: z.number().int().positive(),
+  wrappedKey: z.string().min(1),
+  iv: z.string().min(1),
+  ciphertext: z.string().min(1),
+});
+export type EncryptedEnvelope = z.infer<typeof EncryptedEnvelopeSchema>;
+
+export const AttemptStates = ["none", "in_progress", "submitted", "grading", "graded"] as const;
+export const AttemptStateSchema = z.enum(AttemptStates);
+export type AttemptState = z.infer<typeof AttemptStateSchema>;
+
+/** Student-facing exam list entry (visibility = downward inheritance). */
+export const ExamListItemSchema = z.object({
+  id: z.uuid(),
+  title: z.string(),
+  totalItems: z.number().int().positive(),
+  durationMinutes: z.number().int().positive(),
+  opensAt: z.iso.datetime({ offset: true }),
+  closesAt: z.iso.datetime({ offset: true }),
+  attemptState: AttemptStateSchema,
+  attemptId: z.uuid().nullable(),
+  /** e.g. "10/12" once graded. */
+  score: z.string().nullable(),
+  /** Approximate download size shown before download (bytes). */
+  packageBytes: z.number().int().nonnegative(),
+});
+export type ExamListItem = z.infer<typeof ExamListItemSchema>;
+
+/** Downloaded-for-offline package. Correct answers NEVER leave the server. */
+export const ExamPackageSchema = z.object({
+  examId: z.uuid(),
+  version: z.number().int().positive(),
+  title: z.string(),
+  durationMinutes: z.number().int().positive(),
+  closesAt: z.iso.datetime({ offset: true }),
+  /** Versioned per-exam RSA-OAEP-256 public key (SPKI PEM). */
+  publicKeyPem: z.string().min(1),
+  keyVersion: z.number().int().positive(),
+  questions: z.array(
+    z.object({
+      id: z.uuid(),
+      seq: z.number().int().positive(),
+      type: QuestionTypeSchema,
+      text: z.string(),
+      options: z.array(z.object({ id: z.string(), text: z.string() })).nullable(),
+    }),
+  ),
+});
+export type ExamPackage = z.infer<typeof ExamPackageSchema>;
+
+export const StartAttemptResponseSchema = z.object({
+  attemptId: z.uuid(),
+  examId: z.uuid(),
+  startedAt: z.iso.datetime({ offset: true }),
+  /** Server-anchored wall-clock deadline (started + duration, capped at closesAt). */
+  deadlineAt: z.iso.datetime({ offset: true }),
+});
+export type StartAttemptResponse = z.infer<typeof StartAttemptResponseSchema>;
+
+/** LWW sync events. `id` is the client-generated idempotency key (uuid).
+ *  `clientTs` is advisory within the server-validated attempt window. */
+export const AnswerEventSchema = z.object({
+  kind: z.literal("answer"),
+  id: z.uuid(),
+  attemptId: z.uuid(),
+  questionId: z.uuid(),
+  payload: EncryptedEnvelopeSchema,
+  clientTs: z.number().int().positive(),
+});
+export type AnswerEvent = z.infer<typeof AnswerEventSchema>;
+
+export const SubmitEventSchema = z.object({
+  kind: z.literal("submit"),
+  id: z.uuid(),
+  attemptId: z.uuid(),
+  answeredCount: z.number().int().nonnegative(),
+  clientTs: z.number().int().positive(),
+});
+export type SubmitEvent = z.infer<typeof SubmitEventSchema>;
+
+export const SyncEventSchema = z.discriminatedUnion("kind", [
+  AnswerEventSchema,
+  SubmitEventSchema,
+]);
+export type SyncEvent = z.infer<typeof SyncEventSchema>;
+
+export const SyncBatchRequestSchema = z.object({
+  events: z.array(SyncEventSchema).min(1).max(100),
+});
+export type SyncBatchRequest = z.infer<typeof SyncBatchRequestSchema>;
+
+export const SyncOutcomes = ["merged", "stale", "duplicate", "rejected"] as const;
+export const SyncBatchResponseSchema = z.object({
+  results: z.array(
+    z.object({
+      id: z.uuid(),
+      outcome: z.enum(SyncOutcomes),
+      reason: z.string().optional(),
+    }),
+  ),
+});
+export type SyncBatchResponse = z.infer<typeof SyncBatchResponseSchema>;
+
+export const AttemptStatusResponseSchema = z.object({
+  attemptId: z.uuid(),
+  examId: z.uuid(),
+  state: AttemptStateSchema,
+  answersReceived: z.number().int().nonnegative(),
+  totalItems: z.number().int().positive(),
+  submittedAt: z.iso.datetime({ offset: true }).nullable(),
+  score: z.string().nullable(),
+});
+export type AttemptStatusResponse = z.infer<typeof AttemptStatusResponseSchema>;
+
 export const JobStatuses = ["queued", "processing", "completed", "failed"] as const;
 export const JobStatusSchema = z.enum(JobStatuses);
 export type JobStatus = z.infer<typeof JobStatusSchema>;
