@@ -19,7 +19,7 @@ const GROUPS: {
       { href: "/admin/users", label: "User management" },
       { href: "/admin/import", label: "CSV import wizard" },
       { href: "/admin/import/job", label: "Import job progress" },
-      { href: "/admin/credentials", label: "Admin credential console", preview: true },
+      { href: "/admin/credentials", label: "Admin credential console" },
       { href: "/admin/health", label: "National sync health", preview: true },
     ],
   },
@@ -43,13 +43,12 @@ const GROUPS: {
   {
     title: "Phase IV — Credentials",
     links: [
-      { href: "/wallet", label: "Credential wallet", preview: true },
-      { href: "/wallet/science-star", label: "Badge detail", preview: true },
-      { href: "/wallet/science-star-q3", label: "Badge detail (revoked)", preview: true },
-      { href: "/certificate", label: "Certificate render", preview: true },
-      { href: "/verify", label: "Public verification portal", preview: true },
-      { href: "/verify/8KX2-94QF", label: "Verify result (verified)", preview: true },
-      { href: "/verify/8KX2-94QG", label: "Verify result (revoked)", preview: true },
+      { href: "/wallet", label: "Credential wallet" },
+      // Badge detail is reached from the wallet grid (credential ids are real UUIDs).
+      { href: "/certificate", label: "Certificate render" },
+      { href: "/verify", label: "Public verification portal" },
+      { href: "/verify/8KX2-94QF", label: "Verify result (verified)" },
+      { href: "/verify/8KX2-94QG", label: "Verify result (revoked)" },
     ],
   },
 ];

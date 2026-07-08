@@ -78,11 +78,3 @@ export const outboxExtras = [
 ] as const;
 
 export const syncPayloadKb = 40;
-
-export const credential = {
-  controlNo: "2026-04-118203",
-  verifyCode: "8KX2-94QF",
-  verifyCodeRevoked: "8KX2-94QG",
-  maskedName: "A** M**** D. R****",
-  verifyHost: "verify.deped.gov.ph",
-} as const;

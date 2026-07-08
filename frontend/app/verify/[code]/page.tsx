@@ -1,19 +1,22 @@
 "use client";
 
 /**
- * Public verification portal — result (d8a anatomy + d8b outcomes).
- * Verdict is banner-first: color + word + icon, readable at arm's length,
- * never color alone. Demo routing: 8KX2-94QF → VERIFIED, 8KX2-94QG →
- * REVOKED, anything else → NOT FOUND; `?state=rate-limited` shows the calm
- * 429 state. The freshness stamp is printed on the page so screenshots age
- * visibly. Payload shows masked name, credential, scope chain, dates,
- * status — never email/phone/LRN.
+ * Public verification portal — result (d8a anatomy + d8b outcomes), REAL:
+ * plain fetch of the PUBLIC GET /api/v1/verify/:code (no session, no auth
+ * header — this page must work for anyone). Verdict is banner-first: color
+ * + word + icon, readable at arm's length, never color alone. Outcomes:
+ * VERIFIED (masked name, credential, issuer, dates, control no.), REVOKED,
+ * NOT FOUND, the calm 429 rate-limited state, a no-connection state, and a
+ * caution state for the (should-never-happen) signature-check miss. The
+ * freshness stamp is printed on the page so screenshots age visibly.
+ * Payload shows masked name, credential, scope chain, dates, status — never
+ * email/phone/LRN.
  */
 
-import { Suspense, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
-import { credential } from "@/lib/fixtures";
+import { useParams } from "next/navigation";
+import type { VerifyResponse } from "@rl/schemas";
 import {
   MONO,
   Mono,
@@ -28,7 +31,14 @@ import {
   type PortalStrings,
 } from "../portal";
 
-type Outcome = "verified" | "revoked" | "not-found" | "rate";
+type Outcome =
+  | "checking"
+  | "verified"
+  | "revoked"
+  | "not-found"
+  | "caution"
+  | "rate"
+  | "no-connection";
 
 export default function VerifyResultPage() {
   return (
@@ -156,9 +166,21 @@ function Fact({
   );
 }
 
+/** "San Isidro NHS, Division of Cavite, Region IV-A" → two-line block. */
+function issuerLines(issuerLine: string): ReactNode {
+  const parts = issuerLine.split(", ").filter(Boolean);
+  if (parts.length < 2) return issuerLine;
+  return (
+    <>
+      {parts[0]},
+      <br />
+      {parts.slice(1).join(", ")}
+    </>
+  );
+}
+
 function VerifyResult() {
   const params = useParams<{ code: string }>();
-  const searchParams = useSearchParams();
   const lang = useLang();
   const t = STRINGS[lang];
   const c = usePortalTheme();
@@ -171,19 +193,38 @@ function VerifyResult() {
   }
   code = code.trim().toUpperCase();
 
-  const outcome: Outcome =
-    searchParams.get("state") === "rate-limited"
-      ? "rate"
-      : code === credential.verifyCode
-        ? "verified"
-        : code === credential.verifyCodeRevoked
-          ? "revoked"
-          : "not-found";
-
-  // Server-time stamp (demo: device time), set after mount so SSR markup
-  // stays deterministic. Format per d8a: "Jul 6, 2026 · 10:52 AM".
+  const [outcome, setOutcome] = useState<Outcome>("checking");
+  const [data, setData] = useState<VerifyResponse | null>(null);
+  // Freshness stamp — set when the registry answers, so SSR markup stays
+  // deterministic. Format per d8a: "Jul 6, 2026 · 10:52 AM".
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
-  useEffect(() => {
+
+  const runCheck = useCallback(async () => {
+    setOutcome("checking");
+    let res: Response;
+    try {
+      // PUBLIC endpoint — plain fetch, never the authed client.
+      res = await fetch(`/api/v1/verify/${encodeURIComponent(code)}`);
+    } catch {
+      setOutcome("no-connection");
+      return;
+    }
+    if (res.status === 429) {
+      setOutcome("rate");
+      return;
+    }
+    let body: VerifyResponse;
+    try {
+      body = (await res.json()) as VerifyResponse;
+    } catch {
+      setOutcome("no-connection");
+      return;
+    }
+    if (!res.ok) {
+      setOutcome("no-connection");
+      return;
+    }
+    setData(body);
     const now = new Date();
     const date = now.toLocaleDateString("en-US", {
       month: "short",
@@ -192,7 +233,27 @@ function VerifyResult() {
     });
     const time = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     setCheckedAt(`${date} · ${time}`);
-  }, []);
+    if (body.status === "not_found") setOutcome("not-found");
+    else if (body.signatureValid === false) setOutcome("caution"); // should not happen
+    else if (body.status === "revoked") setOutcome("revoked");
+    else setOutcome("verified");
+  }, [code]);
+
+  useEffect(() => {
+    if (!code) {
+      setOutcome("not-found");
+      return;
+    }
+    void runCheck();
+  }, [code, runCheck]);
+
+  // A dropped connection heals itself the moment signal returns.
+  useEffect(() => {
+    if (outcome !== "no-connection") return;
+    const retry = () => void runCheck();
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [outcome, runCheck]);
 
   const bodyStyle: CSSProperties = {
     padding: "12px 14px",
@@ -203,7 +264,23 @@ function VerifyResult() {
   };
 
   let verdictCard: ReactNode;
-  if (outcome === "verified") {
+  if (outcome === "checking") {
+    verdictCard = (
+      <section
+        style={{
+          border: `1.5px solid ${c.border}`,
+          borderRadius: 14,
+          background: c.card,
+          padding: "16px 14px",
+          fontSize: 12.5,
+          color: c.muted,
+        }}
+        role="status"
+      >
+        {t.checking}
+      </section>
+    );
+  } else if (outcome === "verified" && data) {
     verdictCard = (
       <section
         style={{
@@ -248,15 +325,23 @@ function VerifyResult() {
         <div
           style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}
         >
-          <Fact label={t.facts.holder} value={credential.maskedName} c={c} />
-          <Fact label={t.facts.credential} value={t.credentialTitle} c={c} />
-          <Fact label={t.facts.issuedBy} value={t.issuedByValue} c={c} />
-          <Fact label={t.facts.issueDate} value={t.issueDateValue} c={c} />
-          <Fact label={t.facts.controlNo} value={credential.controlNo} c={c} mono />
+          <Fact label={t.facts.holder} value={data.maskedName ?? "—"} c={c} />
+          <Fact label={t.facts.credential} value={data.title ?? "—"} c={c} />
+          <Fact
+            label={t.facts.issuedBy}
+            value={data.issuerLine ? issuerLines(data.issuerLine) : "—"}
+            c={c}
+          />
+          <Fact
+            label={t.facts.issueDate}
+            value={data.issuedAt ? t.issueDate(data.issuedAt) : "—"}
+            c={c}
+          />
+          <Fact label={t.facts.controlNo} value={data.controlNo ?? "—"} c={c} mono />
         </div>
       </section>
     );
-  } else if (outcome === "revoked") {
+  } else if (outcome === "revoked" && data) {
     verdictCard = (
       <section
         style={{
@@ -282,7 +367,12 @@ function VerifyResult() {
           </h1>
           <Freshness t={t} checkedAt={checkedAt} />
         </div>
-        <div style={bodyStyle}>{t.revokedBody}</div>
+        <div style={bodyStyle}>
+          {t.revokedBody(
+            <Mono>{data.controlNo ?? code}</Mono>,
+            data.issuerLine?.split(", ")[0] ?? "the issuing office",
+          )}
+        </div>
       </section>
     );
   } else if (outcome === "not-found") {
@@ -314,7 +404,38 @@ function VerifyResult() {
         <div style={bodyStyle}>{t.notFoundBody(<Mono>{code || "—"}</Mono>)}</div>
       </section>
     );
+  } else if (outcome === "caution") {
+    // signatureValid === false — should not happen; calm, actionable caution.
+    verdictCard = (
+      <section
+        style={{
+          border: `2px solid ${c.notFound.border}`,
+          borderRadius: 14,
+          overflow: "hidden",
+          background: c.card,
+        }}
+      >
+        <div
+          style={{
+            background: c.notFound.bannerBg,
+            color: c.notFound.bannerFg,
+            padding: "10px 14px",
+            display: "flex",
+            alignItems: "center",
+            gap: 9,
+          }}
+        >
+          <MagnifierGlyph size={16} />
+          <h1 role="status" style={{ flex: 1, margin: 0, fontSize: 16, fontWeight: 800 }}>
+            {t.verdicts.caution}
+          </h1>
+          <Freshness t={t} checkedAt={checkedAt} />
+        </div>
+        <div style={bodyStyle}>{t.cautionBody}</div>
+      </section>
+    );
   } else {
+    const rateLike = outcome === "rate";
     verdictCard = (
       <section
         style={{
@@ -339,7 +460,7 @@ function VerifyResult() {
             {t.verdicts.rate}
           </h1>
         </div>
-        <div style={bodyStyle}>{t.rateBody}</div>
+        <div style={bodyStyle}>{rateLike ? t.rateBody : t.connectionBody}</div>
       </section>
     );
   }

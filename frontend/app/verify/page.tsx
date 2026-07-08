@@ -2,15 +2,16 @@
 
 /**
  * Public verification portal — landing (p4d + d8 manual entry).
- * No login, no cookies banner, no app chrome — a government header, one
- * code field, one button. Typing the code is the camera fallback (a real
- * QR scan lands directly on /verify/{code}).
+ * No login, no session, no cookies banner, no app chrome — a government
+ * header, one code field, one button. Typing the code is the camera
+ * fallback (a real QR scan lands directly on /verify/c/{code}).
  */
 
 import { Suspense, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { credential } from "@/lib/fixtures";
 import {
+  DEMO_CODE_REVOKED,
+  DEMO_CODE_VERIFIED,
   MONO,
   Mono,
   PortalFooter,
@@ -35,7 +36,8 @@ function VerifyLanding() {
   const t = STRINGS[lang];
   const c = usePortalTheme();
   const router = useRouter();
-  const [code, setCode] = useState<string>(credential.verifyCode);
+  // Prefilled with the seeded demo code — reviewer aid for the prototype.
+  const [code, setCode] = useState<string>(DEMO_CODE_VERIFIED);
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -104,10 +106,10 @@ function VerifyLanding() {
         <div style={{ fontSize: 10.5, color: c.faint, marginTop: 7 }}>{t.entryHint}</div>
       </section>
 
-      {/* Reviewer aid for the prototype only — not part of the portal design. */}
+      {/* Reviewer aid for the prototype only — the seeded demo credentials. */}
       <p style={{ margin: 0, fontSize: 10, color: c.faint }}>
-        Demo codes: <Mono>{credential.verifyCode}</Mono> verified ·{" "}
-        <Mono>{credential.verifyCodeRevoked}</Mono> revoked · any other code not found.
+        Demo codes: <Mono>{DEMO_CODE_VERIFIED}</Mono> verified ·{" "}
+        <Mono>{DEMO_CODE_REVOKED}</Mono> revoked · any other code not found.
       </p>
 
       <PortalFooter t={t} c={c} lang={lang} />

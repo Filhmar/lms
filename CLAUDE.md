@@ -25,9 +25,13 @@ Turborepo + pnpm monorepo. Implemented so far:
   against the backend `courses` module — headless manifests (markdown/video/
   assessment pages), offline reading from the shared IndexedDB (v2), page
   completions through the SAME outbox as exam answers, authenticated asset
-  blobs, quota-aware downloads. Only the wallet/verify/certificate surfaces
-  and the student-home content sections remain fixture-driven behind the
-  "Preview — demo data" badge; the ⚙ demo harness exists only there.
+  blobs, quota-aware downloads. Phase IV is REAL: `/wallet`, `/certificate`, the public `/verify` portal,
+  and `/admin/credentials` run against the backend `credentials` module —
+  Ed25519 (eddsa-jcs-2022) Open Badges 3.0 credentials auto-issued on
+  grading/course completion, scannable QR codes, revocation flowing to the
+  public portal, plus the standalone read-only `verify` deployable. Only the
+  student-home content sections remain fixture-driven behind the "Preview —
+  demo data" badge; the ⚙ demo harness exists only there.
 - `backend` — Phase I NestJS 11 modular monolith (`/api/v1`): stateless auth
   (RS256 JWT + JWKS, rotating hashed refresh tokens with reuse detection, Argon2id),
   org-hierarchy (closure table + Redis-cached descendant sets, lateral isolation),

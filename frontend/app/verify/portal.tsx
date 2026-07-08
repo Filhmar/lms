@@ -3,10 +3,10 @@
 /**
  * Shared chrome, colors, and strings for the public verification portal (d8).
  *
- * Standalone public surface: white page, no auth, no app shell, no cookies
- * banner — in production this ships from the separate `apps/verify` origin;
- * it is mocked inside the web app for the demo. Dark follows the visitor's
- * device setting (simulated by the demo harness); the verdict banners keep
+ * Standalone PUBLIC surface: white page, no auth, no session, no app shell —
+ * in production this ships from the separate `verify` origin; the in-app
+ * copy talks to the same public GET /api/v1/verify/:code. Dark follows the
+ * visitor's device setting (prefers-color-scheme); the verdict banners keep
  * their hue in both themes (d8c). The EN/FIL toggle persists via URL param
  * only (d8notes) — zero settings, zero state.
  *
@@ -18,12 +18,15 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import type { CSSProperties, ReactNode } from "react";
-import { useDemo } from "@/lib/demo";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 export const MONO = "ui-monospace, Menlo, monospace";
 
 export type Lang = "en" | "fil";
+
+/** Seeded demo codes — reviewer aid on the landing page only. */
+export const DEMO_CODE_VERIFIED = "8KX2-94QF";
+export const DEMO_CODE_REVOKED = "8KX2-94QG";
 
 /** Mono inline run (codes, control numbers, formats). */
 export function Mono({ children }: { children: ReactNode }) {
@@ -95,9 +98,17 @@ const DARK: PortalColors = {
   rate: { border: "#5C4416", bannerBg: "#2E2110", bannerFg: "#F0B458" },
 };
 
+/** Device theme (d8: dark follows the visitor's setting — no toggle). */
 export function usePortalTheme(): PortalColors {
-  const { theme } = useDemo();
-  return theme === "dark" ? DARK : LIGHT;
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => setDark(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return dark ? DARK : LIGHT;
 }
 
 /* ---------- strings ---------- */
@@ -107,20 +118,42 @@ export interface PortalStrings {
   entryTitle: string;
   check: string;
   entryHint: string;
-  verdicts: { verified: string; revoked: string; notFound: string; rate: string };
+  verdicts: {
+    verified: string;
+    revoked: string;
+    notFound: string;
+    rate: string;
+    caution: string;
+  };
+  checking: string;
   checkedJustNow: string;
   facts: { holder: string; credential: string; issuedBy: string; issueDate: string; controlNo: string };
-  credentialTitle: string;
-  issuedByValue: ReactNode;
-  issueDateValue: string;
+  issueDate: (iso: string) => string;
   maskingNote: string;
   checkAnother: string;
   printResult: string;
   reportProblem: string;
-  revokedBody: ReactNode;
+  revokedBody: (controlNo: ReactNode, issuer: string) => ReactNode;
   notFoundBody: (code: ReactNode) => ReactNode;
+  cautionBody: ReactNode;
   rateBody: ReactNode;
+  connectionBody: ReactNode;
 }
+
+const FIL_MONTHS = [
+  "Enero",
+  "Pebrero",
+  "Marso",
+  "Abril",
+  "Mayo",
+  "Hunyo",
+  "Hulyo",
+  "Agosto",
+  "Setyembre",
+  "Oktubre",
+  "Nobyembre",
+  "Disyembre",
+] as const;
 
 export const STRINGS: Record<Lang, PortalStrings> = {
   en: {
@@ -128,7 +161,14 @@ export const STRINGS: Record<Lang, PortalStrings> = {
     entryTitle: "Camera not working? Type the code",
     check: "Check",
     entryHint: "Found under the QR on every certificate.",
-    verdicts: { verified: "VERIFIED", revoked: "REVOKED", notFound: "NOT FOUND", rate: "ONE MOMENT" },
+    verdicts: {
+      verified: "VERIFIED",
+      revoked: "REVOKED",
+      notFound: "NOT FOUND",
+      rate: "ONE MOMENT",
+      caution: "CAN’T CONFIRM",
+    },
+    checking: "Checking the registry…",
     checkedJustNow: "checked just now",
     facts: {
       holder: "Holder",
@@ -137,25 +177,21 @@ export const STRINGS: Record<Lang, PortalStrings> = {
       issueDate: "Issue date",
       controlNo: "Control no.",
     },
-    credentialTitle: "Grade 7 Completion",
-    issuedByValue: (
-      <>
-        San Isidro NHS,
-        <br />
-        Division of Cavite, Region IV-A
-      </>
-    ),
-    issueDateValue: "March 28, 2026",
+    issueDate: (iso) =>
+      new Date(iso).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      }),
     maskingNote:
       "Names are partly hidden to protect the student — match the visible letters against the certificate in front of you.",
     checkAnother: "Check another code",
     printResult: "Print this result",
     reportProblem: "Report a problem",
-    revokedBody: (
+    revokedBody: (controlNo, issuer) => (
       <>
-        This credential (<Mono>2026-04-102117</Mono>) was withdrawn by the{" "}
-        <b>Division of Cavite</b> on Jan 12, 2026. <b>Do not accept it.</b> To confirm why,
-        contact the issuing division.
+        This credential ({controlNo}) was withdrawn by <b>{issuer}</b>.{" "}
+        <b>Do not accept it.</b> To confirm why, contact the issuing office.
       </>
     ),
     notFoundBody: (code) => (
@@ -164,10 +200,23 @@ export const STRINGS: Record<Lang, PortalStrings> = {
         characters under the QR. If it still fails, the certificate may not be genuine.
       </>
     ),
+    cautionBody: (
+      <>
+        This code matched a record, but its signature could not be confirmed just now.
+        Try again in a few minutes — and if this keeps happening, contact the issuing
+        office before accepting the certificate.
+      </>
+    ),
     rateBody: (
       <>
-        Too many checks from this connection. Wait <b>38 seconds</b> and try again — no action
-        needed.
+        Too many checks from this connection. Wait <b>a minute</b> and try again — no
+        action needed.
+      </>
+    ),
+    connectionBody: (
+      <>
+        No connection right now — nothing was lost. Check your signal and try again in a
+        moment.
       </>
     ),
   },
@@ -182,7 +231,9 @@ export const STRINGS: Record<Lang, PortalStrings> = {
       revoked: "BINAWI",
       notFound: "HINDI NAHANAP",
       rate: "SANDALI LANG",
+      caution: "HINDI PA MASIGURO",
     },
+    checking: "Sinusuri sa talaan…",
     checkedJustNow: "kakasuri pa lamang",
     facts: {
       holder: "Pangalan",
@@ -191,25 +242,20 @@ export const STRINGS: Record<Lang, PortalStrings> = {
       issueDate: "Petsa ng isyu",
       controlNo: "Control no.",
     },
-    credentialTitle: "Grade 7 Completion",
-    issuedByValue: (
-      <>
-        San Isidro NHS,
-        <br />
-        Division of Cavite, Region IV-A
-      </>
-    ),
-    issueDateValue: "Marso 28, 2026",
+    issueDate: (iso) => {
+      const d = new Date(iso);
+      return `${FIL_MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+    },
     maskingNote:
       "Bahagyang nakatago ang pangalan upang maprotektahan ang mag-aaral — itugma ang mga nakikitang letra sa sertipikong hawak mo.",
     checkAnother: "Suriin ang ibang code",
     printResult: "I-print ang resulta",
     reportProblem: "Mag-ulat ng problema",
-    revokedBody: (
+    revokedBody: (controlNo, issuer) => (
       <>
-        Binawi ng <b>Division of Cavite</b> ang kredensyal na ito (<Mono>2026-04-102117</Mono>)
-        noong Enero 12, 2026. <b>Huwag itong tanggapin.</b> Upang malaman kung bakit,
-        makipag-ugnayan sa naglabas na division.
+        Binawi ng <b>{issuer}</b> ang kredensyal na ito ({controlNo}).{" "}
+        <b>Huwag itong tanggapin.</b> Upang malaman kung bakit, makipag-ugnayan sa
+        naglabas na opisina.
       </>
     ),
     notFoundBody: (code) => (
@@ -219,10 +265,23 @@ export const STRINGS: Record<Lang, PortalStrings> = {
         tumugma, maaaring hindi tunay ang sertipiko.
       </>
     ),
+    cautionBody: (
+      <>
+        May tumugmang rekord sa code na ito, ngunit hindi pa nakumpirma ang lagda nito
+        ngayon. Subukang muli pagkalipas ng ilang minuto — at kung paulit-ulit ito,
+        makipag-ugnayan sa naglabas na opisina bago tanggapin ang sertipiko.
+      </>
+    ),
     rateBody: (
       <>
-        Masyadong maraming pagsusuri mula sa koneksyong ito. Maghintay ng <b>38 segundo</b> at
-        subukang muli — walang kailangang gawin.
+        Masyadong maraming pagsusuri mula sa koneksyong ito. Maghintay ng{" "}
+        <b>isang minuto</b> at subukang muli — walang kailangang gawin.
+      </>
+    ),
+    connectionBody: (
+      <>
+        Walang koneksyon ngayon — walang nawala. Suriin ang signal at subukang muli
+        maya-maya.
       </>
     ),
   },
