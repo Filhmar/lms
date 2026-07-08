@@ -1,0 +1,38 @@
+# Development overlay: host-published ports for everything, dev credentials,
+# and an on-demand seed job.
+#   docker compose -f docker-compose.yml -f docker-compose.development.yml up --build
+#   docker compose -f docker-compose.yml -f docker-compose.development.yml --profile seed run --rm seed
+
+services:
+  postgres:
+    ports:
+      - "55432:5432" # matches backend/scripts/dev-services.sh conventions
+
+  redis:
+    ports:
+      - "56379:6379"
+
+  backend:
+    environment:
+      NODE_ENV: development
+    ports:
+      - "3200:3200" # direct API access for curl/debugging (dev only)
+
+  frontend:
+    ports:
+      - "3000:3000"
+
+  # Idempotent DepEd demo seed (admin + Ana Reyes + scope chain).
+  seed:
+    image: rl-migrate:${TAG:-local}
+    build:
+      context: .
+      target: migrate
+    command: ["pnpm", "run", "seed"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rl}:${POSTGRES_PASSWORD:-rl_dev_password}@postgres:5432/${POSTGRES_DB:-resilient_learn}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    profiles: ["seed"]
+    restart: "no"

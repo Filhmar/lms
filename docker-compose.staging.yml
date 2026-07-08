@@ -1,0 +1,27 @@
+# Staging overlay: production build/behavior with staging credentials.
+# Secrets come from .env.staging (never committed; SOPS/age-encrypted at rest
+# per the delivery blueprint) — copy .env.staging.example to start.
+#   docker compose --env-file .env.staging \
+#     -f docker-compose.yml -f docker-compose.staging.yml up -d
+
+services:
+  postgres:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+  backend:
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+
+  frontend:
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

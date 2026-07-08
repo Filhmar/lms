@@ -1,0 +1,109 @@
+# Resilient-Learn — base compose (shared topology for every environment).
+# Compose by concern (blueprint pattern):
+#   docker compose -f docker-compose.yml -f docker-compose.development.yml up
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.production.yml up -d
+# Add -f docker-compose.monitoring.yml for Prometheus + Grafana.
+#
+# Topology: the browser talks to ONE origin (frontend). The Next.js server
+# reverse-proxies /api/v1/* and /.well-known/jwks.json internally to the
+# backend service over the compose network — the backend port is never
+# published in staging/production.
+
+name: resilient-learn
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-rl}:${POSTGRES_PASSWORD:-rl_dev_password}@postgres:5432/${POSTGRES_DB:-resilient_learn}
+  REDIS_URL: redis://redis:6379
+  JWT_PRIVATE_KEY_PATH: /run/keys/jwt-private.pem
+  JWT_PUBLIC_KEY_PATH: /run/keys/jwt-public.pem
+  STORAGE_DIR: /data/storage
+  PORT: "3200"
+  METRICS_PORT: "9464"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rl_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-resilient_learn}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rl} -d ${POSTGRES_DB:-resilient_learn}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    # noeviction: this instance carries BullMQ queues — evicting jobs is data loss.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot pre-deploy job: prisma migrate deploy, then exits.
+  migrate:
+    image: rl-migrate:${TAG:-local}
+    build:
+      context: .
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rl}:${POSTGRES_PASSWORD:-rl_dev_password}@postgres:5432/${POSTGRES_DB:-resilient_learn}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    image: rl-backend:${TAG:-local}
+    build:
+      context: .
+      target: backend
+    environment:
+      <<: *backend-env
+    volumes:
+      - ${JWT_KEYS_DIR:-./backend/.keys}:/run/keys:ro
+      - storagedata:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3200/api/v1/health"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+      start_period: 15s
+
+  frontend:
+    image: rl-frontend:${TAG:-local}
+    build:
+      context: .
+      target: frontend
+      args:
+        # Baked into the Next server's rewrites at build time.
+        BACKEND_INTERNAL_URL: http://backend:3200
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/screens"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  pgdata:
+  redisdata:
+  storagedata:

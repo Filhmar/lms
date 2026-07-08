@@ -38,7 +38,22 @@ cd frontend && pnpm dev # just the web app (Next.js, port 3000)
 backend/scripts/dev-services.sh   # local Postgres 16 (:55432) + Redis (:56379) + dev JWT keys
 cd backend && pnpm prisma migrate dev && pnpm seed   # migrate + idempotent DepEd demo seed
 cd backend && pnpm dev            # nest start --watch
+
+# containers (root Dockerfile, targets frontend|backend|migrate; compose by concern)
+docker compose -f docker-compose.yml -f docker-compose.development.yml up --build
+docker compose -f docker-compose.yml -f docker-compose.development.yml --profile seed run --rm seed
+docker compose --env-file .env.staging    -f docker-compose.yml -f docker-compose.staging.yml up -d
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.production.yml up -d
+# append -f docker-compose.monitoring.yml for Prometheus (:9090) + Grafana (:3001)
 ```
+
+Containers expose ONE origin: the Next.js server reverse-proxies `/api/v1/*` and
+`/.well-known/jwks.json` to the backend service internally (rewrites baked at
+image build via `BACKEND_INTERNAL_URL`); the backend port is published only in
+the development overlay. Migrations run as the one-shot `migrate` service —
+never in the API container's CMD. The backend serves prom-client metrics on
+:9464 (internal only) when `METRICS_PORT` is set; the monitoring overlay
+scrapes it.
 
 Seeded logins: `admin@deped.gov.ph` / `ChangeMe!2026` (central_admin),
 `ana.reyes@deped.gov.ph` / `Student!2026` (student @ San Isidro NHS).

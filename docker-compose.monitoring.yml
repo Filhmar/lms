@@ -1,0 +1,39 @@
+# Monitoring overlay (dependency concern): Prometheus scrapes the backend's
+# standalone prom-client server (backend:9464, internal-only) and Grafana
+# visualizes it. Attach to any environment:
+#   docker compose -f docker-compose.yml -f docker-compose.development.yml \
+#     -f docker-compose.monitoring.yml up
+# OTel traces/OTLP export land later per TECHSTACK §5.6; this overlay covers
+# process + HTTP metrics today.
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheusdata:
+  grafanadata:

@@ -1,0 +1,53 @@
+# Production overlay: hardened restart/logging/resources; secrets are
+# REQUIRED (the ${VAR:?} form refuses to boot with defaults). Only the
+# frontend is published — the backend is reachable solely through the
+# frontend's internal reverse proxy on the compose network.
+#   docker compose --env-file .env.production \
+#     -f docker-compose.yml -f docker-compose.production.yml up -d
+# Deploy discipline (see docs/TECHSTACK.md §5.6): images should be pulled by
+# signed digest from a registry in CI-driven deploys; set TAG/REGISTRY there.
+
+services:
+  postgres:
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.production}
+    logging: &prod-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  redis:
+    restart: always
+    logging: *prod-logging
+
+  migrate:
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rl}:${POSTGRES_PASSWORD:?set in .env.production}@postgres:5432/${POSTGRES_DB:-resilient_learn}
+
+  backend:
+    restart: always
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rl}:${POSTGRES_PASSWORD:?set in .env.production}@postgres:5432/${POSTGRES_DB:-resilient_learn}
+    volumes:
+      - ${JWT_KEYS_DIR:?point at the mounted production key directory}:/run/keys:ro
+      - storagedata:/data/storage
+    logging: *prod-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1g
+
+  frontend:
+    restart: always
+    ports:
+      - "${FRONTEND_PORT:-80}:3000"
+    logging: *prod-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m

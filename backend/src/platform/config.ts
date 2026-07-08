@@ -18,6 +18,8 @@ const EnvSchema = z.object({
   STORAGE_DIR: z.string().min(1),
   ACCESS_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(900), // 15 min
   REFRESH_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(604800), // 7 days
+  /** prom-client standalone server; 0 disables (host dev default). */
+  METRICS_PORT: z.coerce.number().int().min(0).default(0),
 });
 
 export interface AppConfig extends z.infer<typeof EnvSchema> {
