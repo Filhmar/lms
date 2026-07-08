@@ -38,6 +38,7 @@ import * as engine from "@/lib/exam/engine";
 import { countAnswered, type UiExamItem } from "@/lib/exam/engine";
 import { useExamEngine } from "@/lib/exam/use-engine";
 import { AppShell } from "@/components/app-chrome";
+import { takeExamTarget } from "../courses/course-shared";
 import { SyncCenterContent } from "./sync-center";
 import {
   fmtClock,
@@ -194,6 +195,30 @@ export function ExamJourney() {
       setStageRaw("list");
     }
   }, [eng.ready, eng.recoveryExamId, eng.packages, stage]);
+
+  /* ----- deep link from the course player's assessment embed -----
+     The exam id rides sessionStorage (or ?exam=) so course URLs stay
+     query-free for the SW cache. Consumed once; recovery always wins. */
+  const deepLink = useRef<string | null>(null);
+  useEffect(() => {
+    if (deepLink.current !== null) return;
+    const fromQuery = new URLSearchParams(window.location.search).get("exam");
+    deepLink.current = fromQuery ?? takeExamTarget() ?? "consumed";
+  }, []);
+  useEffect(() => {
+    if (!eng.ready || (stage !== null && stage !== "list")) return;
+    if (eng.recoveryExamId && eng.packages[eng.recoveryExamId]) return;
+    const id = deepLink.current;
+    if (!id || id === "consumed") return;
+    const target = eng.exams.find((e) => e.id === id);
+    if (!target && !eng.packages[id]) return; // list may still be loading
+    deepLink.current = "consumed";
+    setSelectedId(id);
+    setOv(NO_OVERLAYS);
+    setStageRaw(
+      target && isSubmittedish(target, eng.attempts[id]) ? "status" : "detail",
+    );
+  }, [eng.ready, eng.exams, eng.packages, eng.attempts, eng.recoveryExamId, stage]);
 
   /* ----- 1s wall-clock tick (timer + auto-submit anchor to deadlineAt) ----- */
   useEffect(() => {

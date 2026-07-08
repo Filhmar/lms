@@ -5,7 +5,9 @@
  * component, two presentations: bottom sheet on phones / anchored popover at
  * ≥720dp (rendered by the caller), plus the standalone /sync route.
  * Chip grammar per the state language: shape + color + verb, never color
- * alone; offline is calm, never an error. Rows are exam events only for now.
+ * alone; offline is calm, never an error. Rows cover exam events plus a
+ * rolled-up "Reading progress" row for pending course completions (the
+ * course engine shares this outbox).
  */
 
 import { useEffect, useState } from "react";
@@ -72,7 +74,17 @@ interface Row {
 
 function buildRows(eng: EngineState): Row[] {
   const offline = !eng.online;
-  return Object.values(eng.attempts).map((att) => {
+  const rows: Row[] = [];
+  if (eng.outbox.progressPending > 0) {
+    const n = eng.outbox.progressPending;
+    rows.push({
+      key: "reading-progress",
+      title: "Reading progress",
+      sub: `${n} page${n === 1 ? "" : "s"} finished — still to send`,
+      chip: offline ? "local" : "sending",
+    });
+  }
+  const attemptRows = Object.values(eng.attempts).map((att) => {
     const title = eng.packages[att.examId]?.title ?? "Exam";
     if (att.state === "in_progress") {
       return {
@@ -101,6 +113,7 @@ function buildRows(eng: EngineState): Row[] {
       chip: allSent ? ("done" as const) : offline ? ("local" as const) : ("sending" as const),
     };
   });
+  return [...rows, ...attemptRows];
 }
 
 export function SyncCenterContent({

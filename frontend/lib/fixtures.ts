@@ -79,32 +79,6 @@ export const outboxExtras = [
 
 export const syncPayloadKb = 40;
 
-export const courses = [
-  {
-    id: "science-8",
-    title: "Science 8",
-    chapters: 10,
-    progressPercent: 62,
-    continueChapter: "Chapter 3: Weather disturbances",
-    onDevice: true,
-  },
-  {
-    id: "math-8",
-    title: "Math 8",
-    chapters: 8,
-    progressPercent: 88,
-    onDevice: true,
-  },
-  {
-    id: "filipino-8",
-    title: "Filipino 8",
-    chapters: 9,
-    progressPercent: 0,
-    onDevice: false,
-    downloadSize: "31 MB",
-  },
-] as const;
-
 export const credential = {
   controlNo: "2026-04-118203",
   verifyCode: "8KX2-94QF",

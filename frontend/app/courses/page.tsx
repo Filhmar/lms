@@ -1,74 +1,72 @@
 "use client";
 
 /**
- * My courses (key-screens p3a) — per-course download state, data saver
- * visible. States: downloaded + progress / downloaded-with-update (amber) /
- * not-downloaded (muted icon). All data local; the sync pill and download
- * actions react to the demo connectivity.
+ * My courses (key-screens p3a) — REAL: GET /courses drives the list (the
+ * on-device manifests are the calm fallback when the fetch fails), per-course
+ * on-device state comes from IndexedDB, progress % from local ∪ server
+ * completions, and the sync pill reads the real shared outbox. States kept
+ * from the design: on-phone + progress / not-downloaded (muted icon) /
+ * offline "Get later"; data saver stays a visible local preference.
  */
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Bar, Chip, Icon, SyncPill } from "@rl/ui";
+import { Bar, Icon, SyncPill, type WorkState } from "@rl/ui";
 import { AppShell } from "@/components/app-chrome";
 import * as copy from "@/lib/copy";
-import { useOnline } from "@/lib/demo";
-
-interface CourseCard {
-  id: string;
-  title: string;
-  sub: string;
-  state: "on-phone" | "update" | "not-downloaded";
-  progress?: number;
-  size?: string;
-}
-
-const CARDS: CourseCard[] = [
-  {
-    id: "science-8",
-    title: "Science 8",
-    sub: "Division of Cavite · 8 chapters",
-    state: "on-phone",
-    progress: 62,
-  },
-  {
-    id: "math-8",
-    title: "Math 8",
-    sub: "On this phone · updated by your division",
-    state: "update",
-  },
-  {
-    id: "filipino-8",
-    title: "Filipino 8",
-    sub: "Not on this phone yet",
-    state: "not-downloaded",
-    size: "31 MB",
-  },
-];
+import { RequireAuth } from "@/lib/session";
+import * as courseEngine from "@/lib/course/engine";
+import { completedCount, type UiCourseItem } from "@/lib/course/engine";
+import { useCourseEngine } from "@/lib/course/use-engine";
+import { strings } from "../exams/state";
+import { fmtBytes, useDataSaver } from "./course-shared";
 
 export default function CoursesPage() {
-  const online = useOnline();
+  return (
+    <RequireAuth>
+      <CoursesScreen />
+    </RequireAuth>
+  );
+}
+
+function CoursesScreen() {
+  const eng = useCourseEngine();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "on-phone">("all");
+  const [dataSaver] = useDataSaver();
 
+  const online = eng.online;
   const [liveMsg, setLiveMsg] = useState("");
   const firstStatus = useRef(true);
   useEffect(() => {
+    if (!eng.ready) return;
     if (firstStatus.current) {
       firstStatus.current = false;
       return;
     }
     setLiveMsg(online ? copy.syncCenter.pillAllClear : copy.environment.offline);
-  }, [online]);
+  }, [online, eng.ready]);
 
-  const visible = CARDS.filter(
+  if (!eng.ready) return null;
+
+  const pending = eng.outbox.pending;
+  const pillState: WorkState =
+    pending === 0 ? "synced" : online ? "sending" : "on-device";
+  const pillLabel =
+    pillState === "synced"
+      ? copy.syncCenter.pillAllClear
+      : pillState === "sending"
+        ? strings.sendingLeft(pending)
+        : copy.syncCenter.pillResting(pending);
+
+  const visible = eng.courses.filter(
     (c) =>
       c.title.toLowerCase().includes(query.trim().toLowerCase()) &&
-      (filter === "all" || c.state !== "not-downloaded"),
+      (filter === "all" || Boolean(eng.manifests[c.id])),
   );
 
   return (
-    <AppShell examBadge={1}>
+    <AppShell>
       <span
         aria-live="polite"
         style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}
@@ -80,11 +78,7 @@ export default function CoursesPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <h1 style={{ flex: 1, fontSize: 19, fontWeight: 800, margin: 0 }}>Courses</h1>
           <Link href="/sync" aria-label="Open Sync Center" style={{ textDecoration: "none" }}>
-            {online ? (
-              <SyncPill state="synced" label={copy.syncCenter.pillAllClear} />
-            ) : (
-              <SyncPill state="on-device" label={copy.syncCenter.pillResting(8)} offline />
-            )}
+            <SyncPill state={pillState} label={pillLabel} offline={!online} />
           </Link>
         </div>
 
@@ -110,26 +104,46 @@ export default function CoursesPage() {
         </div>
 
         {/* data saver — environment signal, informational amber */}
-        <div
-          style={{
-            background: "var(--color-on-device-bg)",
-            borderRadius: 12,
-            padding: "9px 13px",
-            display: "flex",
-            gap: 8,
-            alignItems: "flex-start",
-          }}
-        >
-          <span style={{ color: "var(--color-on-device-fg)", display: "inline-flex", marginTop: 1 }}>
-            <Icon name="download" size={14} />
-          </span>
-          <span style={{ fontSize: 11.5, fontWeight: 600, lineHeight: 1.45, color: "var(--color-on-device-fg)" }}>
-            Data saver is on — pages load when you tap, nothing downloads by itself.
-          </span>
-        </div>
+        {dataSaver ? (
+          <div
+            style={{
+              background: "var(--color-on-device-bg)",
+              borderRadius: 12,
+              padding: "9px 13px",
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+            }}
+          >
+            <span style={{ color: "var(--color-on-device-fg)", display: "inline-flex", marginTop: 1 }}>
+              <Icon name="download" size={14} />
+            </span>
+            <span style={{ fontSize: 11.5, fontWeight: 600, lineHeight: 1.45, color: "var(--color-on-device-fg)" }}>
+              Data saver is on — pages load when you tap, nothing downloads by itself.
+            </span>
+          </div>
+        ) : null}
+
+        {eng.courses.length === 0 ? (
+          <div
+            style={{
+              border: "1.5px dashed var(--color-border)",
+              borderRadius: 14,
+              padding: "16px 14px",
+              fontSize: 12.5,
+              lineHeight: 1.5,
+              color: "var(--color-ink-subtle)",
+              textAlign: "center",
+            }}
+          >
+            {online
+              ? "No courses yet — courses from your school will show up here."
+              : "You’re offline — courses on this phone still work."}
+          </div>
+        ) : null}
 
         {visible.map((c) => (
-          <CourseCardRow key={c.id} course={c} online={online} />
+          <CourseCardRow key={c.id} course={c} eng={eng} online={online} />
         ))}
       </div>
     </AppShell>
@@ -168,14 +182,37 @@ function FilterChip({
   );
 }
 
-function CourseCardRow({ course, online }: { course: CourseCard; online: boolean }) {
-  const muted = course.state === "not-downloaded";
+function CourseCardRow({
+  course,
+  eng,
+  online,
+}: {
+  course: UiCourseItem;
+  eng: courseEngine.CourseEngineState;
+  online: boolean;
+}) {
+  const stored = Boolean(eng.manifests[course.id]);
+  const downloading = eng.downloads[course.id];
+  const muted = !stored && !downloading;
+
+  const done = stored
+    ? Math.max(completedCount(course.id, eng), course.completedPages)
+    : course.completedPages;
+  const percent =
+    course.totalPages > 0 ? Math.round((done / course.totalPages) * 100) : 0;
+
+  const sub = stored
+    ? `${course.subject} · ${course.chapters} chapters`
+    : online
+      ? "Not on this phone yet"
+      : `Needs connection to download · ${fmtBytes(course.manifestBytes)}`;
+
   return (
     <div
       style={{
         position: "relative",
         background: "var(--color-card)",
-        border: `1.5px solid ${course.state === "update" ? "var(--color-warning-border)" : "var(--color-border)"}`,
+        border: "1.5px solid var(--color-border)",
         borderRadius: 14,
         padding: "13px 14px",
       }}
@@ -201,11 +238,11 @@ function CourseCardRow({ course, online }: { course: CourseCard; online: boolean
               marginTop: 1,
             }}
           >
-            {!online && muted ? `Needs connection to download · ${course.size}` : course.sub}
+            {sub}
           </div>
         </div>
         <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", minHeight: 48 }}>
-          {course.state === "on-phone" ? (
+          {stored ? (
             <span
               style={{
                 display: "inline-flex",
@@ -219,39 +256,56 @@ function CourseCardRow({ course, online }: { course: CourseCard; online: boolean
               <Icon name="check" size={13} />
               On phone
             </span>
-          ) : course.state === "update" ? (
-            <Chip tone="on-device" size="compact" icon={<Icon name="download" size={12} />}>
-              2 pages changed
-            </Chip>
-          ) : (
+          ) : downloading ? (
             <span
+              className="rl-num"
+              style={{ fontSize: 11.5, fontWeight: 700, color: downloading.stalled ? "var(--color-on-device-fg)" : "var(--color-primary)" }}
+            >
+              {downloading.stalled ? "Kept — waiting for signal" : `Getting… ${downloading.pct}%`}
+            </span>
+          ) : (
+            <button
+              type="button"
+              disabled={!online}
+              onClick={() => void courseEngine.downloadCourse(course.id).catch(() => undefined)}
+              aria-label={
+                online
+                  ? `Download ${course.title} · ${fmtBytes(course.manifestBytes)}`
+                  : `Download ${course.title} later — needs connection`
+              }
               style={{
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 5,
+                minHeight: 48,
+                padding: "0 4px",
+                border: "none",
+                background: "none",
+                fontFamily: "inherit",
                 fontSize: 11.5,
                 fontWeight: 700,
+                cursor: online ? "pointer" : "default",
                 color: online ? "var(--color-primary)" : "var(--color-ink-faint)",
               }}
             >
               <Icon name="download" size={13} />
-              {online ? `Get · ${course.size}` : "Get later"}
-            </span>
+              {online ? `Get · ${fmtBytes(course.manifestBytes)}` : "Get later"}
+            </button>
           )}
         </div>
       </div>
-      {typeof course.progress === "number" ? (
+      {stored && course.totalPages > 0 ? (
         <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 10 }}>
           <Bar
-            percent={course.progress}
+            percent={percent}
             style={{ flex: 1 }}
-            aria-label={`${course.title} — ${course.progress}% done`}
+            aria-label={`${course.title} — ${percent}% done`}
           />
           <span
             className="rl-num"
             style={{ fontSize: 11, fontWeight: 700, color: "var(--color-ink-subtle)" }}
           >
-            {course.progress}%
+            {percent}%
           </span>
         </div>
       ) : null}

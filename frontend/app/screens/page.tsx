@@ -33,10 +33,11 @@ const GROUPS: {
   {
     title: "Phase III — Courses & PWA",
     links: [
-      { href: "/courses", label: "My courses", preview: true },
-      { href: "/courses/science-8", label: "Course TOC", preview: true },
-      { href: "/courses/science-8/read", label: "Course player", preview: true },
-      { href: "/downloads", label: "Download manager", preview: true },
+      { href: "/courses", label: "My courses" },
+      // Seeded Science 8 course (fixed id in backend/scripts/seed.ts).
+      { href: "/courses/c0a15e00-0000-4000-8000-0000000000cc", label: "Course TOC" },
+      { href: "/courses/c0a15e00-0000-4000-8000-0000000000cc/read", label: "Course player" },
+      { href: "/downloads", label: "Download manager" },
     ],
   },
   {

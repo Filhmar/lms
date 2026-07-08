@@ -1,7 +1,12 @@
 /**
- * IndexedDB repository for the exam journey — DB `resilient-learn` v1.
+ * IndexedDB repository — the ONE shared `resilient-learn` DB (now v2).
  * Pure TS on the `idb` package (PRD-prescribed); no React, no DOM beyond
  * IndexedDB. (Graduates to packages/offline-store when the RN port starts.)
+ *
+ * This module owns the DB schema + upgrade path for every store (exams AND
+ * courses — a single DB version can't be owned by two modules). The exam
+ * repository functions live here; the course repository functions live in
+ * lib/course/db.ts on top of the shared `getDb()`.
  *
  * PRD "Local persistence" rules honored here:
  *  · UI writes land in IndexedDB first — never localStorage for exam data;
@@ -16,6 +21,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import type {
   AnswerEvent,
+  CourseManifest,
   EncryptedEnvelope,
   ExamPackage,
   SubmitEvent,
@@ -66,11 +72,52 @@ export interface OutboxRecord {
   reason?: string;
 }
 
+/* ----------------------- course stores (v2, Phase III) ----------------------- */
+
+/** A downloaded course manifest — the course's full text content. */
+export interface StoredCourseManifest {
+  courseId: string;
+  manifest: CourseManifest;
+  /** ms epoch when downloaded/refreshed. */
+  storedAt: number;
+}
+
+/** A downloaded course video, stored whole (TECHSTACK: universal fallback). */
+export interface StoredCourseAsset {
+  /** The manifest's full authenticated API path — the natural unique key. */
+  assetPath: string;
+  courseId: string;
+  blob: Blob;
+  sizeBytes: number;
+  storedAt: number;
+}
+
+/** One completed page. Survives content removal — progress never leaves. */
+export interface StoredCourseProgress {
+  /** Composite key `${courseId}:${pageId}`. */
+  key: string;
+  courseId: string;
+  pageId: string;
+  /** LWW timestamp — stamped at completion; the server relies on it. */
+  clientTs: number;
+  /** true once the server is known to have it (hydrated from /progress). */
+  synced: boolean;
+}
+
+export function progressKey(courseId: string, pageId: string): string {
+  return `${courseId}:${pageId}`;
+}
+
 interface RlDb extends DBSchema {
   exam_packages: { key: string; value: ExamPackage };
   attempts: { key: string; value: StoredAttempt };
   outbox: { key: number; value: OutboxRecord };
+  course_manifests: { key: string; value: StoredCourseManifest };
+  course_assets: { key: string; value: StoredCourseAsset };
+  course_progress: { key: string; value: StoredCourseProgress };
 }
+
+export type RlDatabase = IDBPDatabase<RlDb>;
 
 /* ---------------------------------- open --------------------------------- */
 
@@ -78,12 +125,24 @@ const DB_NAME = "resilient-learn";
 
 let dbPromise: Promise<IDBPDatabase<RlDb>> | null = null;
 
-function getDb(): Promise<IDBPDatabase<RlDb>> {
-  dbPromise ??= openDB<RlDb>(DB_NAME, 1, {
-    upgrade(db) {
-      db.createObjectStore("exam_packages", { keyPath: "examId" });
-      db.createObjectStore("attempts", { keyPath: "attemptId" });
-      db.createObjectStore("outbox", { keyPath: "id", autoIncrement: true });
+/**
+ * Shared accessor (exam + course repositories). v1 → v2 upgrade only ADDS
+ * the course stores — existing devices keep their exam packages, attempts
+ * and outbox untouched.
+ */
+export function getDb(): Promise<IDBPDatabase<RlDb>> {
+  dbPromise ??= openDB<RlDb>(DB_NAME, 2, {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        db.createObjectStore("exam_packages", { keyPath: "examId" });
+        db.createObjectStore("attempts", { keyPath: "attemptId" });
+        db.createObjectStore("outbox", { keyPath: "id", autoIncrement: true });
+      }
+      if (oldVersion < 2) {
+        db.createObjectStore("course_manifests", { keyPath: "courseId" });
+        db.createObjectStore("course_assets", { keyPath: "assetPath" });
+        db.createObjectStore("course_progress", { keyPath: "key" });
+      }
     },
   });
   return dbPromise;

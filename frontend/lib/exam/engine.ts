@@ -59,8 +59,10 @@ export interface AttemptOutbox {
 }
 
 export interface OutboxSummary {
-  /** All pending events (answers + submits), every attempt. */
+  /** All pending events (answers + submits + course progress). */
   pending: number;
+  /** Pending course reading-progress events (shared outbox, Phase III). */
+  progressPending: number;
   rejected: number;
   lastSentMs: number | null;
   pendingBytes: number;
@@ -84,6 +86,7 @@ export interface EngineState {
 
 const EMPTY_OUTBOX: OutboxSummary = {
   pending: 0,
+  progressPending: 0,
   rejected: 0,
   lastSentMs: null,
   pendingBytes: 0,
@@ -455,6 +458,7 @@ async function refreshOutboxSummary(): Promise<void> {
 async function computeOutboxSummary(): Promise<OutboxSummary> {
   const records = await getOutbox();
   let pending = 0;
+  let progressPending = 0;
   let rejected = 0;
   let lastSentMs: number | null = null;
   const pendingEvents: unknown[] = [];
@@ -468,6 +472,7 @@ async function computeOutboxSummary(): Promise<OutboxSummary> {
     if (record.event.kind === "progress") {
       if (record.status === "pending") {
         pending += 1;
+        progressPending += 1;
         pendingEvents.push(record.event);
       } else if (record.status === "rejected") {
         rejected += 1;
@@ -514,6 +519,7 @@ async function computeOutboxSummary(): Promise<OutboxSummary> {
   }
   return {
     pending,
+    progressPending,
     rejected,
     lastSentMs,
     pendingBytes: pendingEvents.length

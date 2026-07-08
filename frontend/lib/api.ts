@@ -177,6 +177,14 @@ export function apiGet<T>(path: string): Promise<T> {
   return requestJson<T>(path, { method: "GET" });
 }
 
+/** Authenticated GET returning the raw Response (binary bodies — e.g. course
+    video assets streamed with progress). Throws ApiError on non-2xx. */
+export async function apiGetRaw(path: string): Promise<Response> {
+  const res = await request(path, { method: "GET" }, true);
+  if (!res.ok) throw await parseError(res);
+  return res;
+}
+
 export function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return requestJson<T>(path, {
     method: "POST",

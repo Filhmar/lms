@@ -21,9 +21,13 @@ Turborepo + pnpm monorepo. Implemented so far:
   visibility triggers + Chromium SW sync tag), server-anchored exam timer,
   crash recovery from IndexedDB, and server-graded scores. The backend `cbt`
   module owns exams/attempts/answers, the LWW upsert, and the grading worker.
-  Phase III–IV screens (courses, downloads, wallet, verify) remain
-  fixture-driven behind a visible "Preview — demo data" badge; the ⚙ demo
-  harness exists only there.
+  Phase III is REAL: `/courses` + `/downloads` run `frontend/lib/course/`
+  against the backend `courses` module — headless manifests (markdown/video/
+  assessment pages), offline reading from the shared IndexedDB (v2), page
+  completions through the SAME outbox as exam answers, authenticated asset
+  blobs, quota-aware downloads. Only the wallet/verify/certificate surfaces
+  and the student-home content sections remain fixture-driven behind the
+  "Preview — demo data" badge; the ⚙ demo harness exists only there.
 - `backend` — Phase I NestJS 11 modular monolith (`/api/v1`): stateless auth
   (RS256 JWT + JWKS, rotating hashed refresh tokens with reuse detection, Argon2id),
   org-hierarchy (closure table + Redis-cached descendant sets, lateral isolation),

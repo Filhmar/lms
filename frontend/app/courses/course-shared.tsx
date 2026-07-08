@@ -1,13 +1,15 @@
 "use client";
 
 /**
- * Shared bits for the course surfaces (catalog → TOC → player).
- * Local demo constants only — no network; content mirrors the design export
- * (Science 8 · Chapter 3: Weather disturbances).
+ * Shared bits for the REAL course surfaces (catalog → TOC → player →
+ * downloads): chevron/back button, byte formatting, the data-saver
+ * preference, and the offline-safe navigation handoffs. The old fixture
+ * chapter/page constants are gone — content now comes from the stored
+ * course manifest (lib/course).
  */
 
 import Link from "next/link";
-import type { CSSProperties } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 
 /* ---------- chevron (not in the @rl/ui icon set) ---------- */
 
@@ -68,95 +70,85 @@ export function BackButton({
   );
 }
 
-/* ---------- Science 8 demo structure ---------- */
+/* ---------- byte formatting (counts over adjectives) ---------- */
 
-export type ChapterState = "done" | "current" | "pages-only" | "not-downloaded";
-
-export interface Chapter {
-  n: number;
-  title: string;
-  state: ChapterState;
-  /** Trailing download affordance label parts, when something is missing. */
-  download?: { label: string; size: string };
+/** "0 KB" / "820 KB" / "1.2 MB" / "2.0 GB" — approximate, for download
+    affordances and the storage legend. */
+export function fmtBytes(bytes: number): string {
+  if (bytes <= 0) return "0 KB";
+  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
+  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
-/** Chapters as designed in p3b (Course TOC) and d4e (player rail). */
-export const science8Chapters: Chapter[] = [
-  { n: 1, title: "Earthquakes and faults", state: "done" },
-  { n: 2, title: "Typhoons", state: "done" },
-  { n: 3, title: "Weather disturbances", state: "current" },
-  {
-    n: 4,
-    title: "Interactions in ecosystems",
-    state: "pages-only",
-    download: { label: "Video", size: "24 MB" },
-  },
-  { n: 5, title: "Motion", state: "not-downloaded", download: { label: "Get", size: "6 MB" } },
-];
+/* ---------- data saver — student default ON, a local preference ---------- */
 
-export interface CoursePage {
-  n: number;
-  title: string;
-  h1: string;
-  body: string[];
+const DATA_SAVER_KEY = "rl-data-saver";
+
+export function useDataSaver(): [boolean, (value: boolean) => void] {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DATA_SAVER_KEY);
+      if (raw !== null) setOn(raw === "1");
+    } catch {
+      /* first run / storage unavailable — default stays on */
+    }
+  }, []);
+  const update = useCallback((value: boolean) => {
+    setOn(value);
+    try {
+      localStorage.setItem(DATA_SAVER_KEY, value ? "1" : "0");
+    } catch {
+      /* preference lives for this tab only */
+    }
+  }, []);
+  return [on, update];
 }
 
-/** Chapter 3 pages. Page 5 is the fully designed reading page (d4a/p3c);
- *  page 6 is the "not on this phone yet" page until prefetched (d4c). */
-export const chapter3Pages: CoursePage[] = [
-  {
-    n: 1,
-    title: "What is a tropical cyclone?",
-    h1: "What is a tropical cyclone?",
-    body: [
-      "A tropical cyclone is a large rotating storm that forms over warm ocean water. In the Philippines we call the strongest ones bagyo.",
-      "Every year, about twenty tropical cyclones enter the Philippine Area of Responsibility.",
-    ],
-  },
-  {
-    n: 2,
-    title: "How typhoons form",
-    h1: "How typhoons form",
-    body: [
-      "Warm, moist air rises from the sea surface and cooler air rushes in below it. As this cycle repeats, clouds spin into a huge rotating system.",
-      "When winds near the center pass 118 km/h, the storm is called a typhoon.",
-    ],
-  },
-  {
-    n: 3,
-    title: "Reading the weather map",
-    h1: "Reading the weather map",
-    body: [
-      "Weather maps show where a storm is, where it is heading, and how wide its winds reach. The eye of the storm sits at the center of the spiral.",
-      "PAGASA updates the storm track several times a day while a cyclone is inside the Philippine Area of Responsibility.",
-    ],
-  },
-  {
-    n: 4,
-    title: "Rainfall and flooding",
-    h1: "Rainfall and flooding",
-    body: [
-      "A slow-moving storm can drop more rain than a fast one, even when its winds are weaker. Low-lying communities watch rainfall warnings closely.",
-      "Know where your barangay's evacuation center is before the rain starts.",
-    ],
-  },
-  {
-    n: 5,
-    title: "Storm signals",
-    h1: "Public storm warning signals",
-    body: [
-      "When a tropical cyclone approaches, PAGASA raises wind signals from 1 to 5. Each signal tells your community how strong winds may get — and how much time you have to prepare.",
-    ],
-  },
-  {
-    n: 6,
-    title: "Community preparedness",
-    h1: "Community preparedness",
-    body: [
-      "Signals matter most when the whole community acts on them together. Schools, barangay halls, and families each have a role before the wind arrives.",
-      "Prepare a family plan: where to meet, what to bring, and who checks on elderly neighbors.",
-    ],
-  },
-];
+/* ---------- offline-safe navigation handoffs ----------
+   Course routes must stay query-string-free so the service worker's
+   cached documents/RSC payloads keep answering offline (a `?p=` variant
+   would be a fresh cache key). Targets ride sessionStorage instead. */
 
-export const CH3_CRUMB = "Ch. 3 · Weather disturbances";
+const READ_TARGET_KEY = "rl-read-target";
+const EXAM_TARGET_KEY = "rl-exam-target";
+
+export function setReadTarget(courseId: string, pageId: string): void {
+  try {
+    sessionStorage.setItem(READ_TARGET_KEY, `${courseId}:${pageId}`);
+  } catch {
+    /* the player falls back to the first unread page */
+  }
+}
+
+/** Read-and-clear the handoff for this course (one-shot). */
+export function takeReadTarget(courseId: string): string | null {
+  try {
+    const raw = sessionStorage.getItem(READ_TARGET_KEY);
+    if (!raw) return null;
+    sessionStorage.removeItem(READ_TARGET_KEY);
+    const [c, pageId] = raw.split(":");
+    return c === courseId && pageId ? pageId : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setExamTarget(examId: string): void {
+  try {
+    sessionStorage.setItem(EXAM_TARGET_KEY, examId);
+  } catch {
+    /* the exams list still shows it */
+  }
+}
+
+export function takeExamTarget(): string | null {
+  try {
+    const examId = sessionStorage.getItem(EXAM_TARGET_KEY);
+    if (examId) sessionStorage.removeItem(EXAM_TARGET_KEY);
+    return examId;
+  } catch {
+    return null;
+  }
+}

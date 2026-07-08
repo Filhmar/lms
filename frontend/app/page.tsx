@@ -433,7 +433,7 @@ function HomeScreen() {
 function ContinueCard({ online, demoted }: { online: boolean; demoted?: boolean }) {
   return (
     <Link
-      href="/courses/science-8/read"
+      href="/courses"
       className="home-continue"
       style={{ opacity: demoted ? 0.92 : 1 }}
     >
@@ -639,7 +639,7 @@ function HydrationBody() {
       </div>
 
       <CourseRow
-        href="/courses/science-8"
+        href="/courses"
         title="Science 8"
         sub="Chapter 1 ready — start reading"
         tileTint
