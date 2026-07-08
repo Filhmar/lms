@@ -40,9 +40,12 @@ Turborepo + pnpm monorepo. Implemented so far:
   ObjectStorage port with a local-fs driver. Modules expose a public `index.ts`
   contract — never import another module's internals.
 
-`worker` (separate BullMQ deployable) and `verify` (Phase IV credential verifier)
-are not yet scaffolded; the provisioning worker currently runs in-process in the
-backend and is the documented extraction candidate. The PRD lives at
+- `verify` — standalone read-only Fastify credential portal (:3300), reads only
+  the `creds.verify_read` model; own Dockerfile target + compose service.
+
+`worker` (separate BullMQ deployable) is not yet split out; the provisioning and
+grading workers run in-process in the backend and are the documented extraction
+candidates. The PRD lives at
 [docs/plan.md](docs/plan.md); the stack decision at [docs/TECHSTACK.md](docs/TECHSTACK.md)
 (directory naming adopted here — `frontend`/`backend` — supersedes its `apps/*` sketch).
 
@@ -84,7 +87,7 @@ Seeded logins: `admin@deped.gov.ph` / `ChangeMe!2026` (central_admin),
 - Design tokens are CSS custom properties in `packages/ui/src/styles.css`
   (light + `[data-theme="dark"]`); components use `rl-*` classes. Dark values not
   specified in the design export are derived and flagged with comments.
-- Preview (Phase II–IV) screens run on demo fixtures (`frontend/lib/fixtures.ts`)
+- Preview screens (student-home content sections only) run on demo fixtures (`frontend/lib/fixtures.ts`)
   and react to the demo harness (`frontend/lib/demo.tsx`) inside `PreviewShell`
   (`frontend/components/preview.tsx`). Real Phase I screens must never import
   fixtures/demo — they talk to `/api/v1` via `frontend/lib/api.ts` only.
@@ -96,8 +99,8 @@ Seeded logins: `admin@deped.gov.ph` / `ChangeMe!2026` (central_admin),
 - Microcopy comes from `frontend/lib/copy.ts` (verbatim from the design's state
   language; never write "sync"/"server"/"error" in student-facing copy).
 - `/screens` is the review index of every implemented screen.
-- The exam journey persists to localStorage key `resilient-learn-exam-demo`;
-  reloading mid-exam exercises crash recovery.
+- The exam/course engines persist to the shared IndexedDB `resilient-learn` (v2);
+  reloading mid-exam exercises crash recovery from IndexedDB.
 
 ## What we are building
 
