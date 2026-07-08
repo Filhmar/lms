@@ -2,8 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Archivo } from "next/font/google";
 import "@rl/ui/styles.css";
 import "./globals.css";
-import { DemoProvider } from "@/lib/demo";
-import { DevHarness } from "@/components/dev-harness";
+import { SessionProvider } from "@/lib/session";
 
 const archivo = Archivo({
   subsets: ["latin"],
@@ -33,10 +32,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={archivo.variable} suppressHydrationWarning>
       <body>
-        <DemoProvider>
-          {children}
-          <DevHarness />
-        </DemoProvider>
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );

@@ -23,14 +23,21 @@ export function AppHeader({
   greeting,
   sub,
   trailing,
+  avatar,
 }: {
   greeting: ReactNode;
   sub?: ReactNode;
   trailing?: ReactNode;
+  /** Override the fixture avatar (e.g. the session avatar + menu on home). */
+  avatar?: ReactNode;
 }) {
   return (
     <header style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 16px 4px" }}>
-      <div className="rl-avatar" style={{ fontSize: 14 }}>{student.initials}</div>
+      {avatar ?? (
+        <div className="rl-avatar" style={{ fontSize: 14 }}>
+          {student.initials}
+        </div>
+      )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 16, fontWeight: 800 }}>{greeting}</div>
         {sub ? (

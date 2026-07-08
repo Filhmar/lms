@@ -143,7 +143,8 @@ export function ImportErrorRow({
   row: number;
   message: string;
   badValue?: string;
-  action: string;
+  /** Optional — real job screens list errors without a per-row action. */
+  action?: string;
   actionColor?: string;
   onAction?: () => void;
 }) {
@@ -172,23 +173,25 @@ export function ImportErrorRow({
           </>
         ) : null}
       </span>
-      <button
-        type="button"
-        onClick={onAction}
-        style={{
-          border: "none",
-          background: "none",
-          cursor: "pointer",
-          fontFamily: "inherit",
-          fontSize: 12,
-          fontWeight: 700,
-          color: actionColor,
-          padding: 0,
-          flexShrink: 0,
-        }}
-      >
-        {action}
-      </button>
+      {action ? (
+        <button
+          type="button"
+          onClick={onAction}
+          style={{
+            border: "none",
+            background: "none",
+            cursor: "pointer",
+            fontFamily: "inherit",
+            fontSize: 12,
+            fontWeight: 700,
+            color: actionColor,
+            padding: 0,
+            flexShrink: 0,
+          }}
+        >
+          {action}
+        </button>
+      ) : null}
     </div>
   );
 }

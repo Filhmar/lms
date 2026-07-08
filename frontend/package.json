@@ -3,12 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "BACKEND_INTERNAL_URL=${BACKEND_INTERNAL_URL:-http://localhost:3200} next dev",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@rl/schemas": "workspace:*",
     "@rl/ui": "workspace:*",
     "next": "^16.2.0",
     "react": "^19.0.0",

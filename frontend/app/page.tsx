@@ -2,8 +2,10 @@
 
 /**
  * Student home — "the daily front door, in every condition" (deep-dive d3,
- * key-screens p1c). Everything above the fold paints from local data; the
- * demo harness drives the flat states:
+ * key-screens p1c). The HEADER is real: greeting/school/avatar come from the
+ * session (/users/me) and the avatar opens a small menu with Log out. The
+ * BODY (continue card, exam card, courses, badges) is Phase II–III demo
+ * content and stays fixture-driven inside the PreviewShell (badge + ⚙):
  *   · online            → d3a normal day
  *   · offline           → d3c exam-day-offline (pinned exam + the one red banner)
  *   · ?state=hydrating  → d3b first-run hydration (skeletons, never blocking)
@@ -12,12 +14,14 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Bar, Button, Chip, Icon, SkeletonRow, SyncPill } from "@rl/ui";
 import { AppHeader, AppShell } from "@/components/app-chrome";
+import { PreviewShell } from "@/components/preview";
 import * as copy from "@/lib/copy";
-import { exam, student } from "@/lib/fixtures";
+import { exam } from "@/lib/fixtures";
 import { useDemo, useOnline } from "@/lib/demo";
+import { initialsOf, RequireAuth, useSession } from "@/lib/session";
 
 const EYEBROW: React.CSSProperties = {
   fontSize: 10.5,
@@ -29,9 +33,88 @@ const EYEBROW: React.CSSProperties = {
 
 export default function HomePage() {
   return (
-    <Suspense fallback={null}>
-      <HomeScreen />
-    </Suspense>
+    <RequireAuth>
+      <PreviewShell>
+        <Suspense fallback={null}>
+          <HomeScreen />
+        </Suspense>
+      </PreviewShell>
+    </RequireAuth>
+  );
+}
+
+/** Session avatar — tap for a small menu with Log out. */
+function AvatarMenu() {
+  const { user, logout } = useSession();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  if (!user) return null;
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        type="button"
+        className="rl-avatar"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Account menu for ${user.fullName}`}
+        onClick={() => setOpen((o) => !o)}
+        style={{ fontSize: 14, border: "none", cursor: "pointer", fontFamily: "inherit" }}
+      >
+        {initialsOf(user.fullName)}
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          className="rl-card"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 55,
+            width: 210,
+            padding: 10,
+            boxShadow: "0 8px 24px rgba(12,19,34,0.18)",
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 800 }}>{user.fullName}</div>
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--color-ink-subtle)",
+              marginTop: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {user.email}
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              void logout().then(() => router.replace("/login"));
+            }}
+            style={{
+              marginTop: 10,
+              width: "100%",
+              height: 40,
+              border: "1.5px solid var(--color-border)",
+              borderRadius: 999,
+              background: "var(--color-card)",
+              color: "var(--color-ink-secondary)",
+              fontSize: 12.5,
+              fontWeight: 800,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Log out
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -40,19 +123,22 @@ function HomeScreen() {
   const hydrating = params.get("state") === "hydrating";
   const online = useOnline();
   const { iosMode } = useDemo();
+  const { user } = useSession();
 
-  /* Greeting rotates by time of day; renders from local profile only. */
-  const [greeting, setGreeting] = useState(`Magandang umaga, ${student.shortName}!`);
+  const shortName = user ? (user.fullName.split(/\s+/)[0] ?? user.fullName) : "";
+
+  /* Greeting rotates by time of day; renders from the session profile. */
+  const [greeting, setGreeting] = useState(`Magandang umaga, ${shortName}!`);
   useEffect(() => {
     const h = new Date().getHours();
     setGreeting(
       h < 12
-        ? `Magandang umaga, ${student.shortName}!`
+        ? `Magandang umaga, ${shortName}!`
         : h < 18
-          ? `Magandang hapon, ${student.shortName}!`
-          : `Magandang gabi, ${student.shortName}!`,
+          ? `Magandang hapon, ${shortName}!`
+          : `Magandang gabi, ${shortName}!`,
     );
-  }, []);
+  }, [shortName]);
 
   /* Status announcements for the pill (aria-live, never a page reload). */
   const [liveMsg, setLiveMsg] = useState("");
@@ -116,9 +202,10 @@ function HomeScreen() {
       </span>
 
       <AppHeader
-        greeting={hydrating ? `Welcome, ${student.shortName}!` : greeting}
-        sub={`${student.grade} · ${student.school}`}
+        greeting={hydrating ? `Welcome, ${shortName}!` : greeting}
+        sub={user?.scopeName ?? ""}
         trailing={pill}
+        avatar={<AvatarMenu />}
       />
 
       {hydrating ? (

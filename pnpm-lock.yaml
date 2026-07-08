@@ -105,6 +105,9 @@ importers:
 
   frontend:
     dependencies:
+      '@rl/schemas':
+        specifier: workspace:*
+        version: link:../packages/schemas
       '@rl/ui':
         specifier: workspace:*
         version: link:../packages/ui

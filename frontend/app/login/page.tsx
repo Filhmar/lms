@@ -1,19 +1,80 @@
 "use client";
 
 /**
- * p1a — Login. Cached shell: works at 0% connectivity for returning users.
- * Phone-first public/auth surface (340px design frame).
+ * p1a — Login, wired to POST /api/v1/auth/login via the session provider.
+ * Cached shell: works at 0% connectivity for returning users. Errors are
+ * inline and actionable; progress lives inside the button (never a page
+ * spinner). Admins land on /admin, everyone else on /.
  */
 
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Chip, Field, Icon } from "@rl/ui";
-import { useOnline } from "@/lib/demo";
+import { ApiError } from "@/lib/api";
+import { homeRouteFor, useSession } from "@/lib/session";
 
 const MONO = "ui-monospace, Menlo, monospace";
 
+/** Real browser connectivity (no demo harness on this surface). */
+function useBrowserOnline() {
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+  return online;
+}
+
 export default function LoginPage() {
   const router = useRouter();
-  const online = useOnline();
+  const online = useBrowserOnline();
+  const { status, user, login } = useSession();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showActivateLink, setShowActivateLink] = useState(false);
+
+  /* Already signed in (e.g. back button) → straight to the right home. */
+  useEffect(() => {
+    if (status === "authed" && user) router.replace(homeRouteFor(user.role));
+  }, [status, user, router]);
+
+  async function submit() {
+    if (busy) return;
+    setError(null);
+    setShowActivateLink(false);
+    setBusy(true);
+    try {
+      const signedIn = await login(email.trim(), password);
+      router.replace(homeRouteFor(signedIn.role));
+    } catch (err) {
+      setBusy(false);
+      if (err instanceof ApiError) {
+        if (err.status === 401) {
+          setError("That email and password don't match.");
+        } else if (err.status === 403) {
+          setError(err.message);
+          if (/pending|activat/i.test(err.message)) setShowActivateLink(true);
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError(
+          "No connection right now — if you've signed in on this phone before, connect once to sign in again.",
+        );
+      }
+    }
+  }
 
   return (
     <main
@@ -80,35 +141,80 @@ export default function LoginPage() {
         style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 12 }}
         onSubmit={(e) => {
           e.preventDefault();
-          router.push("/");
+          void submit();
         }}
       >
         <Field
           label="Learner ID or email"
-          defaultValue="ana.reyes@deped.gov.ph"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           autoComplete="username"
           inputMode="email"
+          name="email"
         />
-        <Field label="Password" type="password" defaultValue="password" autoComplete="current-password" />
-        <Button type="submit" style={{ height: 52, fontSize: 15, fontWeight: 800 }}>
-          Sign in
+        <Field
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          name="password"
+        />
+
+        {error ? (
+          <div
+            role="alert"
+            style={{
+              background: "var(--color-attention-bg)",
+              border: "1.5px solid var(--color-danger-border)",
+              borderRadius: 12,
+              padding: "10px 13px",
+              display: "flex",
+              gap: 9,
+              alignItems: "flex-start",
+              color: "var(--color-attention-fg)",
+            }}
+          >
+            <span style={{ display: "inline-flex", flexShrink: 0, marginTop: 1 }}>
+              <Icon name="attention" size={14} />
+            </span>
+            <span style={{ fontSize: 12.5, lineHeight: 1.5, fontWeight: 600 }}>
+              {error}
+              {showActivateLink ? (
+                <>
+                  {" "}
+                  <Link
+                    href="/activate"
+                    style={{ color: "var(--color-primary)", fontWeight: 800 }}
+                  >
+                    Activate your account →
+                  </Link>
+                </>
+              ) : null}
+            </span>
+          </div>
+        ) : null}
+
+        <Button
+          type="submit"
+          disabled={busy || email.trim().length === 0 || password.length === 0}
+          style={{ height: 52, fontSize: 15, fontWeight: 800 }}
+        >
+          {busy ? "Signing in…" : "Sign in"}
         </Button>
-        <button
-          type="button"
+        <Link
+          href="/activate"
           style={{
-            border: "none",
-            background: "none",
-            cursor: "pointer",
             textAlign: "center",
             fontSize: 13,
             fontWeight: 700,
             color: "var(--color-primary)",
-            fontFamily: "inherit",
+            textDecoration: "none",
             padding: 4,
           }}
         >
-          Forgot password?
-        </button>
+          First time here? Activate your account
+        </Link>
       </form>
 
       {/* Offline reassurance banner */}
@@ -145,71 +251,6 @@ export default function LoginPage() {
       >
         First time on this phone? You&rsquo;ll need a connection once to set it up.
       </p>
-
-      {/* Shared-device footer */}
-      <div
-        style={{
-          marginTop: "auto",
-          paddingTop: 16,
-          borderTop: "1px solid var(--color-border)",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
-        <div style={{ display: "flex" }} aria-hidden>
-          <span
-            style={{
-              width: 30,
-              height: 30,
-              borderRadius: "50%",
-              background: "var(--color-primary)",
-              color: "#ffffff",
-              fontSize: 11,
-              fontWeight: 800,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "2px solid var(--color-canvas)",
-            }}
-          >
-            AR
-          </span>
-          <span
-            style={{
-              width: 30,
-              height: 30,
-              borderRadius: "50%",
-              background: "var(--color-storage-pages)",
-              color: "#ffffff",
-              fontSize: 11,
-              fontWeight: 800,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              border: "2px solid var(--color-canvas)",
-              marginLeft: -8,
-            }}
-          >
-            JD
-          </span>
-        </div>
-        <button
-          type="button"
-          style={{
-            border: "none",
-            background: "none",
-            cursor: "pointer",
-            fontSize: 12.5,
-            fontWeight: 700,
-            color: "var(--color-primary)",
-            fontFamily: "inherit",
-            padding: 0,
-          }}
-        >
-          Shared device? Switch student →
-        </button>
-      </div>
     </main>
   );
 }

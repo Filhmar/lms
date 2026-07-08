@@ -1,25 +1,27 @@
 "use client";
 
 /**
- * p1g + d6a — Bulk CSV import wizard. Validate before anything runs;
- * never a spinner. Structure is checked instantly on upload (a bad file
- * never creates a job); scope is picked and locked at confirm; "Start
- * import" returns a job id immediately (202 pattern) with a link to the
- * job screen — the admin is never held on a blocking request.
+ * p1g + d6a — Bulk CSV import wizard, wired to the 202 job pattern.
+ *   1. Upload    — real file picker; the header row is checked INSTANTLY on
+ *                  device (must equal `email,full_name,role,phone`) — a bad
+ *                  file never leaves the browser.
+ *   2. Choose scope — target scope from GET /scopes/:id/subtree.
+ *   3. Confirm   — POST /provisioning/bulk-import (multipart file +
+ *                  targetScopeId) → 202 { jobId } → the job screen.
+ * Never a spinner; progress lives inside the button.
  */
 
-import { useState } from "react";
-import Link from "next/link";
-import { Chip, Icon } from "@rl/ui";
-import { AdminShell, Eyebrow, ImportErrorRow, IMPORT_ERROR_ROWS, MONO } from "../ui";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Icon } from "@rl/ui";
+import type { BulkImportAccepted } from "@rl/schemas";
+import { CSV_IMPORT_HEADER } from "@rl/schemas";
+import { apiUpload, getErrorMessage } from "@/lib/api";
+import { useSession } from "@/lib/session";
+import { AdminChrome, AdminErrorBanner, ScopeSelect, useSubtree } from "../chrome";
+import { Eyebrow, MONO } from "../ui";
 
-type Phase = "upload" | "review" | "confirm" | "started";
-
-const SCHOOLS = [
-  "San Isidro National High School",
-  "Dasmariñas East ES",
-  "Salawag Integrated School",
-] as const;
+const EXPECTED_HEADER = CSV_IMPORT_HEADER.join(",");
 
 /* ------------------------------------------------------------------ */
 /* Stepper — an ordered list with aria-current (per d6notes a11y).     */
@@ -126,92 +128,174 @@ const panelStyle: React.CSSProperties = {
   padding: 16,
 };
 
+interface CheckedFile {
+  file: File;
+  /** null = header OK; otherwise the actionable problems found. */
+  problems: string[] | null;
+  headerLine: string;
+  dataRows: number;
+}
+
+async function checkFile(file: File): Promise<CheckedFile> {
+  const text = await file.text();
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const headerLine = lines[0]?.trim() ?? "";
+  const dataRows = Math.max(0, lines.length - 1);
+  const problems: string[] = [];
+  if (headerLine === "") {
+    problems.push("The file is empty — no header row found.");
+  } else if (headerLine.replace(/\s/g, "").toLowerCase() !== EXPECTED_HEADER) {
+    const got = headerLine.split(",").map((c) => c.trim().toLowerCase());
+    for (const col of CSV_IMPORT_HEADER) {
+      if (!got.includes(col)) problems.push(`Missing column: ${col}`);
+    }
+    for (const col of got) {
+      if (!(CSV_IMPORT_HEADER as readonly string[]).includes(col)) {
+        problems.push(`Unexpected column: "${col}"`);
+      }
+    }
+    if (problems.length === 0) problems.push("Columns are in the wrong order.");
+  } else if (dataRows === 0) {
+    problems.push("The header is right, but there are no data rows under it.");
+  }
+  return { file, problems: problems.length > 0 ? problems : null, headerLine, dataRows };
+}
+
 export default function ImportWizardPage() {
-  const [phase, setPhase] = useState<Phase>("upload");
-  const [scope, setScope] = useState<string>(SCHOOLS[0]);
+  return (
+    <AdminChrome title="Import users">
+      <ImportWizardBody />
+    </AdminChrome>
+  );
+}
+
+function ImportWizardBody() {
+  const router = useRouter();
+  const { user } = useSession();
+  const { scopes } = useSubtree(user?.scopeId ?? null);
+
+  const [checked, setChecked] = useState<CheckedFile | null>(null);
+  const [phase, setPhase] = useState<"upload" | "scope" | "confirm">("upload");
+  const [targetScopeId, setTargetScopeId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const targetScope = useMemo(
+    () => scopes?.find((s) => s.id === (targetScopeId || user?.scopeId)) ?? null,
+    [scopes, targetScopeId, user?.scopeId],
+  );
+
+  const fmt = (n: number) => n.toLocaleString("en-US");
+
+  async function onPickFile(file: File | undefined) {
+    if (!file) return;
+    const result = await checkFile(file);
+    setChecked(result);
+    setSubmitError(null);
+    if (!result.problems) setPhase("scope");
+    else setPhase("upload");
+  }
+
+  async function startImport() {
+    if (!checked || checked.problems || busy) return;
+    const scopeId = targetScopeId || user?.scopeId;
+    if (!scopeId) return;
+    setBusy(true);
+    setSubmitError(null);
+    const form = new FormData();
+    form.append("file", checked.file);
+    form.append("targetScopeId", scopeId);
+    try {
+      const res = await apiUpload<BulkImportAccepted>("/provisioning/bulk-import", form);
+      router.push(`/admin/import/job?id=${res.jobId}`);
+    } catch (err) {
+      setSubmitError(getErrorMessage(err));
+      setBusy(false);
+    }
+  }
+
+  const activeStep = phase === "upload" ? (checked?.problems ? 2 : 1) : phase === "scope" ? 3 : 4;
 
   return (
-    <AdminShell>
-      <div style={{ padding: "20px 22px", minHeight: 480 }}>
-        <Stepper
-          active={phase === "upload" ? 1 : phase === "review" ? 3 : phase === "confirm" ? 4 : 5}
-        />
+    <div style={{ padding: "20px 22px", minHeight: 480 }}>
+      <Stepper active={activeStep} />
 
-        {phase === "upload" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {/* Dropzone */}
-            <button
-              type="button"
-              onClick={() => setPhase("review")}
+      {phase === "upload" ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: checked?.problems ? "1fr 1fr" : "1fr",
+            gap: 12,
+            maxWidth: checked?.problems ? undefined : 560,
+          }}
+        >
+          {/* Dropzone / picker */}
+          <label
+            style={{
+              background: "var(--color-card)",
+              border: "2px dashed #ADC4F5",
+              borderRadius: 14,
+              padding: "28px 20px",
+              textAlign: "center",
+              cursor: "pointer",
+              display: "block",
+            }}
+          >
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
+              onChange={(e) => {
+                void onPickFile(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <span
               style={{
-                background: "var(--color-card)",
-                border: "2px dashed #ADC4F5",
-                borderRadius: 14,
-                padding: "28px 20px",
-                textAlign: "center",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                color: "inherit",
+                width: 56,
+                height: 56,
+                borderRadius: "50%",
+                background: "var(--color-primary-tint)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--color-primary)",
               }}
             >
+              <Icon name="send" size={26} />
+            </span>
+            <div style={{ fontSize: 15, fontWeight: 800, marginTop: 12 }}>Choose your CSV</div>
+            <div style={{ fontSize: 12, color: "var(--color-ink-subtle)", marginTop: 4 }}>
+              <strong style={{ color: "var(--color-primary)" }}>browse files</strong> · up to 50,000
+              rows
+            </div>
+            <div
+              style={{
+                fontSize: 11.5,
+                color: "var(--color-ink-subtle)",
+                marginTop: 14,
+                lineHeight: 1.6,
+              }}
+            >
+              Needs exactly this header row:{" "}
               <span
                 style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: "50%",
-                  background: "var(--color-primary-tint)",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--color-primary)",
+                  fontFamily: MONO,
+                  background: "var(--color-canvas)",
+                  padding: "2px 6px",
+                  borderRadius: 5,
                 }}
               >
-                <Icon name="send" size={26} />
+                {EXPECTED_HEADER}
               </span>
-              <div style={{ fontSize: 15, fontWeight: 800, marginTop: 12 }}>Drop your CSV here</div>
-              <div style={{ fontSize: 12, color: "var(--color-ink-subtle)", marginTop: 4 }}>
-                or <strong style={{ color: "var(--color-primary)" }}>browse files</strong> · up to
-                50,000 rows
-              </div>
-              <div
-                style={{
-                  fontSize: 11.5,
-                  color: "var(--color-ink-subtle)",
-                  marginTop: 14,
-                  lineHeight: 1.6,
-                }}
-              >
-                Needs columns:{" "}
-                <span
-                  style={{
-                    fontFamily: MONO,
-                    background: "var(--color-canvas)",
-                    padding: "2px 6px",
-                    borderRadius: 5,
-                  }}
-                >
-                  learner_id · first_name · last_name · email · grade_level · section
-                </span>
-              </div>
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  height: 38,
-                  padding: "0 16px",
-                  border: "1.5px solid var(--color-primary)",
-                  color: "var(--color-primary)",
-                  borderRadius: 999,
-                  fontSize: 12,
-                  fontWeight: 800,
-                  marginTop: 12,
-                }}
-              >
-                Download the template
-              </span>
-            </button>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--color-ink-subtle)", marginTop: 8, lineHeight: 1.55 }}>
+              The header is checked instantly on this computer — a bad file never starts a job.
+            </div>
+          </label>
 
-            {/* Failed structure check — a bad file never creates a job */}
+          {/* Failed structure check — a bad file never creates a job */}
+          {checked?.problems ? (
             <div
               style={{
                 background: "var(--color-card)",
@@ -239,9 +323,10 @@ export default function ImportWizardPage() {
                   CSV
                 </span>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>enrollment_draft.csv</div>
-                  <div style={{ fontSize: 11.5, color: "var(--color-ink-subtle)" }}>
-                    1,240 rows · checked instantly, before anything runs
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{checked.file.name}</div>
+                  <div className="rl-num" style={{ fontSize: 11.5, color: "var(--color-ink-subtle)" }}>
+                    {fmt(checked.dataRows)} data row{checked.dataRows === 1 ? "" : "s"} · checked
+                    instantly, before anything runs
                   </div>
                 </div>
               </div>
@@ -276,15 +361,12 @@ export default function ImportWizardPage() {
                     marginTop: 6,
                     paddingLeft: 18,
                     marginBottom: 0,
+                    fontFamily: MONO,
                   }}
                 >
-                  <li>
-                    Missing column: <span style={{ fontFamily: MONO }}>grade_level</span>
-                  </li>
-                  <li>
-                    Column 4 is named <span style={{ fontFamily: MONO }}>&quot;e-mail&quot;</span> —
-                    expected <span style={{ fontFamily: MONO }}>&quot;email&quot;</span>
-                  </li>
+                  {checked.problems.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
                 </ul>
               </div>
 
@@ -296,450 +378,249 @@ export default function ImportWizardPage() {
                   marginTop: 10,
                 }}
               >
-                Fix the headers in your spreadsheet and re-upload. Nothing was created — structure
-                is checked before any job starts.
-              </p>
-
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button
-                  type="button"
-                  onClick={() => setPhase("review")}
-                  style={{
-                    height: 40,
-                    flex: 1,
-                    borderRadius: 999,
-                    fontSize: 12,
-                    fontWeight: 800,
-                    border: "1.5px solid var(--color-border)",
-                    color: "var(--color-ink-subtle)",
-                    background: "var(--color-card)",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  Replace file
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  style={{
-                    height: 40,
-                    flex: 1,
-                    borderRadius: 999,
-                    fontSize: 12,
-                    fontWeight: 800,
-                    border: "none",
-                    background: "var(--color-disabled-bg)",
-                    color: "var(--color-disabled-fg)",
-                    cursor: "not-allowed",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  Continue
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {phase === "review" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            {/* Panel A — file check results */}
-            <div style={panelStyle}>
-              <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-                <span
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 10,
-                    background: "var(--color-primary-tint)",
-                    color: "var(--color-primary)",
-                    fontSize: 10,
-                    fontWeight: 800,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  CSV
-                </span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>SY2026_enrollment.csv</div>
-                  <div style={{ fontSize: 11.5, color: "var(--color-ink-subtle)" }}>
-                    1,240 rows · 214 KB · checked in 2 s
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setPhase("upload")}
-                  style={{
-                    border: "none",
-                    background: "none",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: "var(--color-primary)",
-                    padding: 0,
-                  }}
-                >
-                  Replace file
-                </button>
-              </div>
-
-              {/* Summary tiles */}
-              <div style={{ display: "flex", gap: 8, marginTop: 13 }}>
-                <div
-                  style={{
-                    background: "#EEF9F1",
-                    border: "1px solid var(--color-success-border)",
-                    borderRadius: 10,
-                    padding: "10px 12px",
-                    flex: 1,
-                  }}
-                >
-                  <div
-                    className="rl-num"
-                    style={{ fontSize: 20, fontWeight: 800, color: "var(--color-synced-fg)" }}
-                  >
-                    1,237
-                  </div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-synced-fg)" }}>
-                    rows ready
-                  </div>
-                </div>
-                <div
-                  style={{
-                    background: "var(--color-danger-surface)",
-                    border: "1px solid var(--color-danger-border)",
-                    borderRadius: 10,
-                    padding: "10px 12px",
-                    flex: 1,
-                  }}
-                >
-                  <div
-                    className="rl-num"
-                    style={{ fontSize: 20, fontWeight: 800, color: "var(--color-attention-fg)" }}
-                  >
-                    3
-                  </div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--color-attention-fg)" }}>
-                    need a fix
-                  </div>
-                </div>
-              </div>
-
-              {/* Error rows */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 11 }}>
-                {IMPORT_ERROR_ROWS.map((e) => (
-                  <ImportErrorRow
-                    key={e.row}
-                    row={e.row}
-                    message={e.message}
-                    badValue={"badValue" in e ? e.badValue : undefined}
-                    action="Fix"
-                  />
-                ))}
-              </div>
-
-              <p
-                style={{
-                  fontSize: 11.5,
-                  color: "var(--color-ink-subtle)",
-                  lineHeight: 1.5,
-                  marginTop: 10,
-                }}
-              >
-                You can import the 1,237 clean rows now and fix these 3 later — nothing blocks.
+                Fix the header in your spreadsheet so the first row is exactly{" "}
+                <span style={{ fontFamily: MONO }}>{EXPECTED_HEADER}</span>, then choose the file
+                again. Nothing was created.
               </p>
             </div>
+          ) : null}
+        </div>
+      ) : null}
 
-            {/* Panel B — scope picker */}
-            <div style={{ ...panelStyle, display: "flex", flexDirection: "column" }}>
-              <div style={{ fontSize: 13, fontWeight: 800 }}>Where do these users belong?</div>
-              <div style={{ fontSize: 11.5, color: "var(--color-ink-subtle)", marginTop: 2 }}>
-                New accounts are created inside this scope only.
-              </div>
-
-              {/* Mini scope tree */}
-              <div
+      {phase === "scope" && checked && !checked.problems ? (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {/* Panel A — file check results */}
+          <div style={panelStyle}>
+            <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+              <span
                 style={{
-                  marginTop: 12,
-                  border: "1px solid var(--color-border)",
+                  width: 40,
+                  height: 40,
                   borderRadius: 10,
-                  padding: 8,
-                  fontSize: 13,
-                  fontWeight: 600,
+                  background: "var(--color-primary-tint)",
+                  color: "var(--color-primary)",
+                  fontSize: 10,
+                  fontWeight: 800,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
                 }}
               >
-                <div style={{ padding: "7px 10px", color: "var(--color-ink-faint)" }}>
-                  Division of Cavite
+                CSV
+              </span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{checked.file.name}</div>
+                <div className="rl-num" style={{ fontSize: 11.5, color: "var(--color-ink-subtle)" }}>
+                  {fmt(checked.dataRows)} data row{checked.dataRows === 1 ? "" : "s"} ·{" "}
+                  {Math.max(1, Math.round(checked.file.size / 1024))} KB · header checked on this
+                  computer
                 </div>
-                <div
-                  style={{
-                    padding: "7px 10px 7px 24px",
-                    color: "var(--color-ink-secondary)",
-                  }}
-                >
-                  ▾ Dasmariñas District
-                </div>
-                {SCHOOLS.map((s) => {
-                  const selected = scope === s;
-                  return (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setScope(s)}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "7px 10px 7px 40px",
-                        border: "none",
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        borderRadius: 8,
-                        background: selected ? "var(--color-primary-tint)" : "none",
-                        color: selected ? "var(--color-primary)" : "var(--color-ink-secondary)",
-                      }}
-                    >
-                      {selected ? (
-                        <span
-                          aria-hidden
-                          style={{
-                            width: 16,
-                            height: 16,
-                            borderRadius: "50%",
-                            background: "var(--color-primary)",
-                            color: "#ffffff",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            flexShrink: 0,
-                          }}
-                        >
-                          <Icon name="check" size={9} strokeWidth={4} />
-                        </span>
-                      ) : (
-                        <span
-                          aria-hidden
-                          style={{
-                            width: 16,
-                            height: 16,
-                            borderRadius: "50%",
-                            border: "1.5px solid var(--color-border)",
-                            flexShrink: 0,
-                          }}
-                        />
-                      )}
-                      {s}
-                    </button>
-                  );
-                })}
               </div>
-
-              {/* Footer buttons */}
-              <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", gap: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => setPhase("upload")}
-                  style={{
-                    height: 46,
-                    flex: 1,
-                    border: "1.5px solid var(--color-border)",
-                    color: "var(--color-ink-subtle)",
-                    background: "var(--color-card)",
-                    borderRadius: 999,
-                    fontSize: 13,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPhase("confirm")}
-                  style={{
-                    height: 46,
-                    flex: 2,
-                    background: "var(--color-primary)",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: 999,
-                    fontSize: 13,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  Continue → confirm 1,237 users
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {phase === "confirm" ? (
-          <div style={{ maxWidth: 560 }}>
-            <div style={panelStyle}>
-              <Eyebrow>Ready to start</Eyebrow>
-              <div style={{ fontSize: 15, fontWeight: 800, marginTop: 8 }}>
-                1,237 users → {scope}
-              </div>
-              <div
+              <button
+                type="button"
+                onClick={() => {
+                  setChecked(null);
+                  setPhase("upload");
+                }}
                 style={{
-                  fontSize: 12.5,
-                  color: "var(--color-ink-secondary)",
-                  lineHeight: 1.6,
-                  marginTop: 8,
+                  border: "none",
+                  background: "none",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: "var(--color-primary)",
+                  padding: 0,
                 }}
               >
-                File: <span style={{ fontFamily: MONO }}>SY2026_enrollment.csv</span> · 1,240 rows
-                (3 set aside to fix later)
-                <br />
-                Target scope: Division of Cavite › Dasmariñas District › {scope}
-                <br />
-                New accounts start as pending activation — each gets an invite to set a password.
-              </div>
-              <p
-                style={{
-                  fontSize: 11.5,
-                  color: "var(--color-ink-subtle)",
-                  lineHeight: 1.5,
-                  marginTop: 10,
-                }}
-              >
-                The target scope is locked once the job starts and stays on the job record forever —
-                recorded in the audit trail.
-              </p>
-              <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-                <button
-                  type="button"
-                  onClick={() => setPhase("review")}
-                  style={{
-                    height: 46,
-                    flex: 1,
-                    border: "1.5px solid var(--color-border)",
-                    color: "var(--color-ink-subtle)",
-                    background: "var(--color-card)",
-                    borderRadius: 999,
-                    fontSize: 13,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPhase("started")}
-                  style={{
-                    height: 46,
-                    flex: 2,
-                    background: "var(--color-primary)",
-                    color: "#ffffff",
-                    border: "none",
-                    borderRadius: 999,
-                    fontSize: 13,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  Start import — 1,237 users
-                </button>
-              </div>
+                Replace file
+              </button>
             </div>
-          </div>
-        ) : null}
 
-        {phase === "started" ? (
-          /* 202 Accepted — the job id comes back instantly, never a spinner */
-          <div style={{ maxWidth: 560 }}>
             <div
               style={{
-                background: "var(--color-card)",
-                border: "1.5px solid var(--color-success-border)",
-                borderRadius: 14,
-                padding: "18px 20px",
+                background: "#EEF9F1",
+                border: "1px solid var(--color-success-border)",
+                borderRadius: 10,
+                padding: "10px 12px",
+                marginTop: 13,
               }}
             >
-              <Chip tone="synced" icon={<Icon name="check" size={13} strokeWidth={2.8} />}>
-                Job started
-              </Chip>
-              <div style={{ fontSize: 15, fontWeight: 800, marginTop: 10 }}>
-                Import #4127 is running in the background
-              </div>
-              <p
+              <div
                 style={{
-                  fontSize: 12.5,
-                  color: "var(--color-ink-subtle)",
-                  lineHeight: 1.55,
-                  marginTop: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 7,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  color: "var(--color-synced-fg)",
                 }}
               >
-                Started just now by D. Lopez · target: San Isidro NHS. You can leave this page — the
-                import keeps running and you&rsquo;ll get a notification when it finishes.
-              </p>
-              <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "center" }}>
-                <Link
-                  href="/admin/import/job"
-                  style={{
-                    height: 44,
-                    padding: "0 18px",
-                    background: "var(--color-primary)",
-                    color: "#ffffff",
-                    borderRadius: 999,
-                    fontSize: 13,
-                    fontWeight: 800,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    textDecoration: "none",
-                  }}
-                >
-                  View job progress →
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => setPhase("upload")}
-                  style={{
-                    border: "none",
-                    background: "none",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "var(--color-ink-subtle)",
-                    padding: "0 8px",
-                  }}
-                >
-                  Start another import
-                </button>
+                <Icon name="check" size={14} strokeWidth={2.8} />
+                Header row is exactly right
               </div>
-              <p
+              <div style={{ fontSize: 11.5, color: "var(--color-ink-secondary)", marginTop: 4, fontFamily: MONO }}>
+                {EXPECTED_HEADER}
+              </div>
+            </div>
+
+            <p
+              style={{
+                fontSize: 11.5,
+                color: "var(--color-ink-subtle)",
+                lineHeight: 1.5,
+                marginTop: 10,
+              }}
+            >
+              Row-by-row checks (emails, roles, phone numbers) run inside the job — rows that need a
+              fix are listed on the job screen and never block the clean ones.
+            </p>
+          </div>
+
+          {/* Panel B — scope picker */}
+          <div style={{ ...panelStyle, display: "flex", flexDirection: "column" }}>
+            <div style={{ fontSize: 13, fontWeight: 800 }}>Where do these users belong?</div>
+            <div style={{ fontSize: 11.5, color: "var(--color-ink-subtle)", marginTop: 2 }}>
+              New accounts are created inside this scope only.
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <ScopeSelect
+                label="Target scope"
+                scopes={scopes}
+                value={targetScopeId || user?.scopeId || ""}
+                onChange={setTargetScopeId}
+              />
+            </div>
+
+            <div style={{ marginTop: "auto", paddingTop: 14, display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setChecked(null);
+                  setPhase("upload");
+                }}
                 style={{
-                  fontSize: 11.5,
+                  height: 46,
+                  flex: 1,
+                  border: "1.5px solid var(--color-border)",
                   color: "var(--color-ink-subtle)",
-                  lineHeight: 1.5,
-                  marginTop: 12,
-                  marginBottom: 0,
+                  background: "var(--color-card)",
+                  borderRadius: 999,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
                 }}
               >
-                Starting an import returns a job number instantly — jobs are idempotent, so
-                re-submitting the same file can&rsquo;t double-create users.
-              </p>
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => setPhase("confirm")}
+                style={{
+                  height: 46,
+                  flex: 2,
+                  background: "var(--color-primary)",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: 999,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Continue → confirm {fmt(checked.dataRows)} rows
+              </button>
             </div>
           </div>
-        ) : null}
-      </div>
-    </AdminShell>
+        </div>
+      ) : null}
+
+      {phase === "confirm" && checked && !checked.problems ? (
+        <div style={{ maxWidth: 560 }}>
+          <div style={panelStyle}>
+            <Eyebrow>Ready to start</Eyebrow>
+            <div style={{ fontSize: 15, fontWeight: 800, marginTop: 8 }}>
+              {fmt(checked.dataRows)} rows → {targetScope?.name ?? "your scope"}
+            </div>
+            <div
+              style={{
+                fontSize: 12.5,
+                color: "var(--color-ink-secondary)",
+                lineHeight: 1.6,
+                marginTop: 8,
+              }}
+            >
+              File: <span style={{ fontFamily: MONO }}>{checked.file.name}</span> ·{" "}
+              {fmt(checked.dataRows)} data rows
+              <br />
+              Target scope: {targetScope?.name ?? "your scope"}
+              <br />
+              New accounts start as pending activation — each person activates with a texted code.
+            </div>
+            <p
+              style={{
+                fontSize: 11.5,
+                color: "var(--color-ink-subtle)",
+                lineHeight: 1.5,
+                marginTop: 10,
+              }}
+            >
+              Starting the import returns a job number instantly (202) — you can leave the page and
+              the job keeps running.
+            </p>
+            {submitError ? (
+              <div style={{ marginTop: 10 }}>
+                <AdminErrorBanner>{submitError}</AdminErrorBanner>
+              </div>
+            ) : null}
+            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+              <button
+                type="button"
+                onClick={() => setPhase("scope")}
+                disabled={busy}
+                style={{
+                  height: 46,
+                  flex: 1,
+                  border: "1.5px solid var(--color-border)",
+                  color: "var(--color-ink-subtle)",
+                  background: "var(--color-card)",
+                  borderRadius: 999,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => void startImport()}
+                disabled={busy}
+                style={{
+                  height: 46,
+                  flex: 2,
+                  background: "var(--color-primary)",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: 999,
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: busy ? "default" : "pointer",
+                  fontFamily: "inherit",
+                  opacity: busy ? 0.7 : 1,
+                }}
+              >
+                {busy ? "Starting the job…" : `Start import — ${fmt(checked.dataRows)} rows`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

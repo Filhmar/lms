@@ -12,7 +12,7 @@ const backendInternalUrl = process.env.BACKEND_INTERNAL_URL;
 const nextConfig: NextConfig = {
   // Containerized deploys (Azure Container Apps / any OCI runtime) per docs/TECHSTACK.md
   output: "standalone",
-  transpilePackages: ["@rl/ui"],
+  transpilePackages: ["@rl/ui", "@rl/schemas"],
   ...(backendInternalUrl
     ? {
         async rewrites() {
