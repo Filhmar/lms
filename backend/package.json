@@ -12,7 +12,8 @@
     "start": "node dist/main",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "bootstrap": "tsx scripts/bootstrap.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

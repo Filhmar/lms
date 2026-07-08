@@ -26,6 +26,26 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-rl}:${POSTGRES_PASSWORD:?set in .env.production}@postgres:5432/${POSTGRES_DB:-resilient_learn}
 
+  # One-shot first-run job (opt-in profile): creates the Central scope +
+  # central admin after migrations. Run:
+  #   docker compose --env-file .env.production -f docker-compose.yml \
+  #     -f docker-compose.production.yml --profile bootstrap run --rm bootstrap
+  bootstrap:
+    image: rl-migrate:${TAG:-local}
+    profiles: ["bootstrap"]
+    command: ["pnpm", "run", "bootstrap"]
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rl}:${POSTGRES_PASSWORD:?set in .env.production}@postgres:5432/${POSTGRES_DB:-resilient_learn}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-}
+      BOOTSTRAP_ADMIN_PHONE: ${BOOTSTRAP_ADMIN_PHONE:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *prod-logging
+
   backend:
     restart: always
     environment:

@@ -1,5 +1,13 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import { UserRoles, type ProvisioningRowError } from "@rl/schemas";
+import {
+  CSV_IMPORT_HEADER,
+  UserRoles,
+  normalizePhPhone,
+  roleAllowedAtLevel,
+  type ProvisioningRowError,
+  type ScopeLevel,
+  type UserRole,
+} from "@rl/schemas";
 import { Worker, type Job } from "bullmq";
 import { parse } from "csv-parse";
 import type Redis from "ioredis";
@@ -22,12 +30,14 @@ import { ProvisioningRepository } from "./provisioning.repository";
 
 const emailSchema = z.email();
 const roleSet = new Set<string>(UserRoles);
+const EXPECTED_HEADER = CSV_IMPORT_HEADER.join(",");
 
 interface ValidRow {
   rowNum: number; // 1-based data row (header excluded)
   email: string;
   fullName: string;
   role: string;
+  phone: string; // normalized E.164 (+639XXXXXXXXX)
 }
 
 /**
@@ -85,7 +95,14 @@ export class ProvisioningProcessor implements OnModuleInit, OnModuleDestroy {
 
     await this.repo.markProcessing(jobId);
     try {
-      const { total, validRows, errors } = await this.parseAndValidate(row.filePath);
+      // Role↔level invariant is checked per row against the TARGET scope's level.
+      const scopeLevel = await this.repo.findScopeLevel(row.targetScopeId);
+      if (!scopeLevel) throw new Error("Target scope no longer exists");
+
+      const { total, validRows, errors } = await this.parseAndValidate(
+        row.filePath,
+        scopeLevel,
+      );
       const insertedEmails = await this.bulkInsert(jobId, row.targetScopeId, validRows);
 
       // Rows that survived validation but hit ON CONFLICT are duplicates.
@@ -113,7 +130,10 @@ export class ProvisioningProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Stream-parse (never load the whole file into memory as rows-of-strings-of-junk). */
-  private async parseAndValidate(filePath: string): Promise<{
+  private async parseAndValidate(
+    filePath: string,
+    scopeLevel: ScopeLevel,
+  ): Promise<{
     total: number;
     validRows: ValidRow[];
     errors: ProvisioningRowError[];
@@ -138,7 +158,7 @@ export class ProvisioningProcessor implements OnModuleInit, OnModuleDestroy {
       if (isHeader) {
         isHeader = false;
         const header = record.map((h) => h.trim().toLowerCase()).join(",");
-        if (header !== "email,full_name,role") {
+        if (header !== EXPECTED_HEADER) {
           throw new Error(`Unexpected CSV header: ${header}`);
         }
         continue;
@@ -146,13 +166,13 @@ export class ProvisioningProcessor implements OnModuleInit, OnModuleDestroy {
       total += 1;
       const rowNum = total;
 
-      const [rawEmail = "", rawFullName = "", rawRole = ""] = record;
+      const [rawEmail = "", rawFullName = "", rawRole = "", rawPhone = ""] = record;
       const email = rawEmail.trim().toLowerCase();
       const fullName = rawFullName.trim();
       const role = rawRole.trim().toLowerCase();
 
-      if (record.length !== 3) {
-        errors.push({ row: rowNum, reason: "Expected exactly 3 columns" });
+      if (record.length !== 4) {
+        errors.push({ row: rowNum, reason: "Expected exactly 4 columns" });
         continue;
       }
       if (!emailSchema.safeParse(email).success) {
@@ -167,12 +187,25 @@ export class ProvisioningProcessor implements OnModuleInit, OnModuleDestroy {
         errors.push({ row: rowNum, reason: `Invalid role: ${role}` });
         continue;
       }
+      // Single-scope users: every imported role must belong at the target level.
+      if (!roleAllowedAtLevel(role as UserRole, scopeLevel)) {
+        errors.push({
+          row: rowNum,
+          reason: `role ${role} doesn't belong at a ${scopeLevel}`,
+        });
+        continue;
+      }
+      const phone = normalizePhPhone(rawPhone.trim());
+      if (!phone) {
+        errors.push({ row: rowNum, reason: "phone is not a Philippine mobile" });
+        continue;
+      }
       if (seenEmails.has(email)) {
         errors.push({ row: rowNum, reason: "Duplicate email in file" });
         continue;
       }
       seenEmails.add(email);
-      validRows.push({ rowNum, email, fullName, role });
+      validRows.push({ rowNum, email, fullName, role, phone });
     }
 
     return { total, validRows, errors };
@@ -202,21 +235,22 @@ export class ProvisioningProcessor implements OnModuleInit, OnModuleDestroy {
            row_num   int  NOT NULL,
            email     text NOT NULL,
            full_name text NOT NULL,
-           role      text NOT NULL
+           role      text NOT NULL,
+           phone     text NOT NULL
          )`,
       );
 
       const copyStream = client.query(
         copyFrom(
-          `COPY ${staging} (row_num, email, full_name, role) FROM STDIN WITH (FORMAT csv)`,
+          `COPY ${staging} (row_num, email, full_name, role, phone) FROM STDIN WITH (FORMAT csv)`,
         ),
       );
       await pipeline(Readable.from(toCsv(rows)), copyStream);
 
       const inserted = await client.query<{ email: string }>(
-        `INSERT INTO auth.users (email, full_name, role, scope_id, status)
+        `INSERT INTO auth.users (email, full_name, role, scope_id, status, phone)
          SELECT s.email, s.full_name, s.role::auth.user_role, $1::uuid,
-                'pending_activation'::auth.user_status
+                'pending_activation'::auth.user_status, s.phone
          FROM ${staging} s
          ORDER BY s.row_num
          ON CONFLICT (email) DO NOTHING
@@ -239,6 +273,6 @@ export class ProvisioningProcessor implements OnModuleInit, OnModuleDestroy {
 function* toCsv(rows: ValidRow[]): Generator<string> {
   const escape = (value: string) => `"${value.replace(/"/g, '""')}"`;
   for (const row of rows) {
-    yield `${row.rowNum},${escape(row.email)},${escape(row.fullName)},${escape(row.role)}\n`;
+    yield `${row.rowNum},${escape(row.email)},${escape(row.fullName)},${escape(row.role)},${escape(row.phone)}\n`;
   }
 }

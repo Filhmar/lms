@@ -8,19 +8,46 @@ import { z } from "zod";
  * real environments inject env vars directly.
  */
 
-const EnvSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().positive().default(3200),
-  DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().min(1),
-  JWT_PRIVATE_KEY_PATH: z.string().min(1),
-  JWT_PUBLIC_KEY_PATH: z.string().min(1),
-  STORAGE_DIR: z.string().min(1),
-  ACCESS_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(900), // 15 min
-  REFRESH_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(604800), // 7 days
-  /** prom-client standalone server; 0 disables (host dev default). */
-  METRICS_PORT: z.coerce.number().int().min(0).default(0),
-});
+/** Treats empty-string env vars (compose `${VAR:-}` passthrough) as unset. */
+const optionalEnv = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (v === "" ? undefined : v), schema);
+
+const EnvSchema = z
+  .object({
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    PORT: z.coerce.number().int().positive().default(3200),
+    DATABASE_URL: z.string().min(1),
+    REDIS_URL: z.string().min(1),
+    JWT_PRIVATE_KEY_PATH: z.string().min(1),
+    JWT_PUBLIC_KEY_PATH: z.string().min(1),
+    STORAGE_DIR: z.string().min(1),
+    ACCESS_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(900), // 15 min
+    REFRESH_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(604800), // 7 days
+    /** prom-client standalone server; 0 disables (host dev default). */
+    METRICS_PORT: z.coerce.number().int().min(0).default(0),
+    /** SMS driver for phone-OTP activation: mock (logs the code) or http gateway. */
+    SMS_DRIVER: z.enum(["mock", "http"]).default("mock"),
+    SMS_HTTP_URL: optionalEnv(z.url().optional()),
+    SMS_HTTP_API_KEY: optionalEnv(z.string().min(1).optional()),
+  })
+  .superRefine((env, ctx) => {
+    if (env.SMS_DRIVER === "http") {
+      if (!env.SMS_HTTP_URL) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["SMS_HTTP_URL"],
+          message: "required when SMS_DRIVER=http",
+        });
+      }
+      if (!env.SMS_HTTP_API_KEY) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["SMS_HTTP_API_KEY"],
+          message: "required when SMS_DRIVER=http",
+        });
+      }
+    }
+  });
 
 export interface AppConfig extends z.infer<typeof EnvSchema> {
   /** PEM contents, read once at boot (fail-fast if missing). */

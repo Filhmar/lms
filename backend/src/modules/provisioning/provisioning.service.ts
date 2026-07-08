@@ -6,6 +6,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { CSV_IMPORT_HEADER } from "@rl/schemas";
 import type {
   BulkImportAccepted,
   ProvisioningJobStatus,
@@ -20,7 +21,7 @@ import {
 import { ProvisioningQueue } from "./provisioning.queue";
 import { ProvisioningRepository } from "./provisioning.repository";
 
-const EXPECTED_HEADER = "email,full_name,role";
+const EXPECTED_HEADER = CSV_IMPORT_HEADER.join(",");
 
 /**
  * Async bulk import — the 202 pattern, never synchronous: validate structure

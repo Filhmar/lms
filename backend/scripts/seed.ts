@@ -69,6 +69,7 @@ async function main(): Promise<void> {
         role: "central_admin",
         scopeId: SCOPES[0].id,
         password: "ChangeMe!2026",
+        phone: "+639170000001",
       },
       {
         email: "ana.reyes@deped.gov.ph",
@@ -76,21 +77,23 @@ async function main(): Promise<void> {
         role: "student",
         scopeId: SCOPES[4].id,
         password: "Student!2026",
+        phone: "+639170000002",
       },
     ];
 
     for (const user of users) {
       const passwordHash = await argon2.hash(user.password, { type: argon2.argon2id });
       await client.query(
-        `INSERT INTO auth.users (id, email, full_name, role, scope_id, status, password_hash)
-         VALUES ($1, $2, $3, $4::auth.user_role, $5, 'active'::auth.user_status, $6)
+        `INSERT INTO auth.users (id, email, full_name, role, scope_id, status, password_hash, phone)
+         VALUES ($1, $2, $3, $4::auth.user_role, $5, 'active'::auth.user_status, $6, $7)
          ON CONFLICT (email) DO UPDATE
            SET full_name = EXCLUDED.full_name,
                role = EXCLUDED.role,
                scope_id = EXCLUDED.scope_id,
                status = EXCLUDED.status,
-               password_hash = EXCLUDED.password_hash`,
-        [randomUUID(), user.email, user.fullName, user.role, user.scopeId, passwordHash],
+               password_hash = EXCLUDED.password_hash,
+               phone = EXCLUDED.phone`,
+        [randomUUID(), user.email, user.fullName, user.role, user.scopeId, passwordHash, user.phone],
       );
     }
 

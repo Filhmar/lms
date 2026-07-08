@@ -90,12 +90,38 @@ model User {
   scopeId      String     @map("scope_id") @db.Uuid
   status       UserStatus @default(pending_activation)
   passwordHash String?    @map("password_hash")
+  /// E.164 Philippine mobile (+639XXXXXXXXX). Deliberately NOT unique —
+  /// siblings may share a guardian's phone.
+  phone        String?
   createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
 
   scope         Scope          @relation(fields: [scopeId], references: [id])
   refreshTokens RefreshToken[]
+  otpRequests   OtpRequest[]
 
+  @@index([phone])
   @@map("users")
+  @@schema("auth")
+}
+
+/// Phone-OTP activation codes (Usapp-style). Only the sha256 hex of the
+/// 6-digit code is stored; rows are superseded (consumed) by newer requests.
+model OtpRequest {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  phone      String
+  purpose    String    @default("activation")
+  /// sha256 hex of the 6-digit code — the raw code is never stored.
+  codeHash   String    @map("code_hash")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  attempts   Int       @default(0)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, consumedAt])
+  @@map("otp_requests")
   @@schema("auth")
 }
 

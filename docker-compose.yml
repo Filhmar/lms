@@ -20,6 +20,10 @@ x-backend-env: &backend-env
   STORAGE_DIR: /data/storage
   PORT: "3200"
   METRICS_PORT: "9464"
+  # Phone-OTP activation SMS: mock (logs codes) or http gateway (URL+key required).
+  SMS_DRIVER: ${SMS_DRIVER:-mock}
+  SMS_HTTP_URL: ${SMS_HTTP_URL:-}
+  SMS_HTTP_API_KEY: ${SMS_HTTP_API_KEY:-}
 
 services:
   postgres:

@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../platform/prisma.service";
-import type { RefreshToken, User } from "../../generated/prisma/client";
+import type { OtpRequest, RefreshToken, User } from "../../generated/prisma/client";
+
+const ACTIVATION = "activation";
 
 @Injectable()
 export class AuthRepository {
@@ -40,5 +42,62 @@ export class AuthRepository {
 
   findUserById(id: string): Promise<User | null> {
     return this.prisma.client.user.findUnique({ where: { id } });
+  }
+
+  /* ------------------- Phone-OTP activation (auth.otp_requests) ------------------- */
+
+  /** Supersede: any prior unconsumed activation codes stop working. */
+  async consumeActivationOtps(userId: string): Promise<void> {
+    await this.prisma.client.otpRequest.updateMany({
+      where: { userId, purpose: ACTIVATION, consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
+  }
+
+  createActivationOtp(input: {
+    userId: string;
+    phone: string;
+    codeHash: string;
+    expiresAt: Date;
+  }): Promise<OtpRequest> {
+    return this.prisma.client.otpRequest.create({
+      data: { ...input, purpose: ACTIVATION },
+    });
+  }
+
+  /** Latest unconsumed activation code (expiry/attempts judged by the caller). */
+  findLatestActivationOtp(userId: string): Promise<OtpRequest | null> {
+    return this.prisma.client.otpRequest.findFirst({
+      where: { userId, purpose: ACTIVATION, consumedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  async incrementOtpAttempts(id: string): Promise<void> {
+    await this.prisma.client.otpRequest.update({
+      where: { id },
+      data: { attempts: { increment: 1 } },
+    });
+  }
+
+  async consumeOtp(id: string): Promise<void> {
+    await this.prisma.client.otpRequest.update({
+      where: { id },
+      data: { consumedAt: new Date() },
+    });
+  }
+
+  /** Password set + status flip + OTP consumption — one atomic transaction. */
+  async activateUser(userId: string, passwordHash: string, otpId: string): Promise<void> {
+    await this.prisma.client.$transaction([
+      this.prisma.client.user.update({
+        where: { id: userId },
+        data: { passwordHash, status: "active" },
+      }),
+      this.prisma.client.otpRequest.update({
+        where: { id: otpId },
+        data: { consumedAt: new Date() },
+      }),
+    ]);
   }
 }

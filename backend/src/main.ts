@@ -13,6 +13,9 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.use(helmet());
+  // Behind the frontend reverse proxy / LB: req.ip must be the client's
+  // address (OTP rate limiting keys on it), not the proxy's.
+  app.set("trust proxy", 1);
   app.setGlobalPrefix("api/v1", {
     // JWKS lives at the RFC well-known path, outside the API prefix.
     exclude: [".well-known/jwks.json"],

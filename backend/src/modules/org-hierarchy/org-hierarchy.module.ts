@@ -15,6 +15,6 @@ import { ScopeGuard } from "./scope.guard";
     ScopeAccessService,
     ScopeGuard,
   ],
-  exports: [ScopeAccessService, ScopeGuard],
+  exports: [OrgHierarchyService, ScopeAccessService, ScopeGuard],
 })
 export class OrgHierarchyModule {}

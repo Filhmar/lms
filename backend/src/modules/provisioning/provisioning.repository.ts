@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { ProvisioningRowError } from "@rl/schemas";
+import type { ProvisioningRowError, ScopeLevel } from "@rl/schemas";
 import { PrismaService } from "../../platform/prisma.service";
 import type { ProvisioningJob } from "../../generated/prisma/client";
 
@@ -24,6 +24,15 @@ export class ProvisioningRepository {
 
   findJobById(id: string): Promise<ProvisioningJob | null> {
     return this.prisma.client.provisioningJob.findUnique({ where: { id } });
+  }
+
+  /** Level of the import's target scope (role↔level checks are per row). */
+  async findScopeLevel(scopeId: string): Promise<ScopeLevel | null> {
+    const result = await this.prisma.pool.query<{ level: ScopeLevel }>(
+      `SELECT level FROM org.scopes WHERE id = $1::uuid`,
+      [scopeId],
+    );
+    return result.rows[0]?.level ?? null;
   }
 
   async markProcessing(id: string): Promise<void> {
