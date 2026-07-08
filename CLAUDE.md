@@ -9,8 +9,14 @@ Turborepo + pnpm monorepo. Implemented so far:
 - `packages/ui` — the "Calm Shelter" design system from the Claude Design export.
 - `packages/schemas` — shared Zod v4 DTOs/enums (`@rl/schemas`), consumed by both
   frontend and backend (source-only, `erasableSyntaxOnly`).
-- `frontend` — Next.js 16 PWA with all designed screens, running on demo fixtures
-  (not yet wired to the API).
+- `frontend` — Next.js 16 PWA. Phase I surfaces are REAL and API-wired: login,
+  two-step phone-OTP activation, admin home (live stats), hierarchy console,
+  `/admin/users` (per-branch user management), CSV import + live job progress.
+  Sessions: access token in memory, refresh token in localStorage
+  (`frontend/lib/api.ts` single-flight refresh + `lib/session.tsx` guards).
+  Phase II–IV screens (exams, courses, downloads, wallet, verify) remain
+  fixture-driven behind a visible "Preview — demo data" badge; the ⚙ demo
+  harness exists only there.
 - `backend` — Phase I NestJS 11 modular monolith (`/api/v1`): stateless auth
   (RS256 JWT + JWKS, rotating hashed refresh tokens with reuse detection, Argon2id),
   org-hierarchy (closure table + Redis-cached descendant sets, lateral isolation),
@@ -63,10 +69,15 @@ Seeded logins: `admin@deped.gov.ph` / `ChangeMe!2026` (central_admin),
 - Design tokens are CSS custom properties in `packages/ui/src/styles.css`
   (light + `[data-theme="dark"]`); components use `rl-*` classes. Dark values not
   specified in the design export are derived and flagged with comments.
-- All screens run on demo fixtures (`frontend/lib/fixtures.ts` — Ana Reyes /
-  San Isidro NHS dataset) and react to the demo harness
-  (`frontend/lib/demo.tsx`: theme, connectivity, iosMode, batteryLow — the ⚙
-  button bottom-right). No network calls anywhere yet.
+- Preview (Phase II–IV) screens run on demo fixtures (`frontend/lib/fixtures.ts`)
+  and react to the demo harness (`frontend/lib/demo.tsx`) inside `PreviewShell`
+  (`frontend/components/preview.tsx`). Real Phase I screens must never import
+  fixtures/demo — they talk to `/api/v1` via `frontend/lib/api.ts` only.
+- Backend user lifecycle: admins create users (or CSV-import them) as
+  `pending_activation` with a PH mobile; activation = phone OTP
+  (`SMS_DRIVER=mock` logs codes and returns `devCode` in development;
+  `http` posts to your SMS gateway). Role↔level invariant is enforced
+  (students/teachers at school, each admin at its level).
 - Microcopy comes from `frontend/lib/copy.ts` (verbatim from the design's state
   language; never write "sync"/"server"/"error" in student-facing copy).
 - `/screens` is the review index of every implemented screen.
