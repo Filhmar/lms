@@ -25,6 +25,14 @@ const EnvSchema = z
     REFRESH_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(604800), // 7 days
     /** prom-client standalone server; 0 disables (host dev default). */
     METRICS_PORT: z.coerce.number().int().min(0).default(0),
+    /**
+     * Public base URL of the credential verify portal — baked into every
+     * issued VC (issuer id, verificationMethod, QR verify URL). The dev
+     * default rides the frontend origin; real deploys point at the portal
+     * domain (e.g. https://verify.deped.gov.ph).
+     */
+    VERIFY_PUBLIC_BASE: optionalEnv(z.string().min(1).optional())
+      .transform((v) => (v ?? "http://localhost:3000/verify").replace(/\/+$/, "")),
     /** SMS driver for phone-OTP activation: mock (logs the code) or http gateway. */
     SMS_DRIVER: z.enum(["mock", "http"]).default("mock"),
     SMS_HTTP_URL: optionalEnv(z.url().optional()),

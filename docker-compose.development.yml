@@ -22,6 +22,12 @@ services:
     ports:
       - "3000:3000"
 
+  verify:
+    environment:
+      NODE_ENV: development
+    ports:
+      - "3300:3300" # direct portal access for curl/debugging (dev only)
+
   # Idempotent DepEd demo seed (admin + Ana Reyes + scope chain).
   seed:
     image: rl-migrate:${TAG:-local}

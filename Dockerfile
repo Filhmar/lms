@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # One multi-stage Dockerfile for every deployable (blueprint pattern):
 # the monorepo shares one lockfile, so dependencies install once and each
-# runtime target copies only what it needs. Targets: frontend | backend | migrate.
+# runtime target copies only what it needs.
+# Targets: frontend | backend | migrate | verify.
 
 ARG NODE_IMAGE=node:22-alpine
 
@@ -17,6 +18,7 @@ RUN apk add --no-cache python3 make g++
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 COPY frontend/package.json frontend/
 COPY backend/package.json backend/
+COPY verify/package.json verify/
 COPY packages/ui/package.json packages/ui/
 COPY packages/schemas/package.json packages/schemas/
 RUN pnpm install --frozen-lockfile
@@ -33,6 +35,7 @@ RUN DATABASE_URL=postgresql://build:build@localhost:5432/build \
     pnpm --filter @rl/backend exec prisma generate
 RUN pnpm --filter @rl/backend build
 RUN pnpm --filter @rl/web build
+RUN pnpm --filter @rl/verify build
 
 # ---------- prod-deps: backend production node_modules only ----------
 FROM base AS prod-deps
@@ -40,12 +43,25 @@ RUN apk add --no-cache python3 make g++
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY frontend/package.json frontend/
 COPY backend/package.json backend/
+COPY verify/package.json verify/
 COPY packages/ui/package.json packages/ui/
 COPY packages/schemas/package.json packages/schemas/
 # @rl/schemas is a source-only TS package consumed at runtime (Node 22 type
 # stripping), so its sources ship with the backend image.
 COPY packages/schemas packages/schemas
 RUN pnpm install --frozen-lockfile --prod --filter @rl/backend...
+
+# ---------- verify-prod-deps: verify portal production node_modules only ----------
+# No native toolchain: fastify/pg/ioredis are pure JS on this platform.
+FROM base AS verify-prod-deps
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY frontend/package.json frontend/
+COPY backend/package.json backend/
+COPY verify/package.json verify/
+COPY packages/ui/package.json packages/ui/
+COPY packages/schemas/package.json packages/schemas/
+COPY packages/schemas packages/schemas
+RUN pnpm install --frozen-lockfile --prod --filter @rl/verify...
 
 # ---------- migrate: one-shot jobs (prisma migrate deploy / seed) ----------
 # Runs from the fat build stage: migrations are a pre-deploy job, NEVER the
@@ -66,6 +82,19 @@ WORKDIR /repo/backend
 USER app
 EXPOSE 3200 9464
 CMD ["node", "dist/main"]
+
+# ---------- verify runtime (standalone read-only credential portal) ----------
+# Isolated by design (TECHSTACK §5.5): reads only creds.verify_read +
+# creds.issuer_keys, no backend code on board, rate-limited, CDN-frontable.
+FROM base AS verify
+ENV NODE_ENV=production
+RUN addgroup -S app && adduser -S app -G app
+COPY --from=verify-prod-deps --chown=app:app /repo /repo
+COPY --from=build --chown=app:app /repo/verify/dist /repo/verify/dist
+WORKDIR /repo/verify
+USER app
+EXPOSE 3300
+CMD ["node", "dist/main.js"]
 
 # ---------- frontend runtime (Next.js standalone server) ----------
 FROM base AS frontend

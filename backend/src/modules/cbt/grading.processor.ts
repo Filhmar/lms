@@ -10,6 +10,7 @@ import { Worker, type Job } from "bullmq";
 import type Redis from "ioredis";
 import { PrismaService } from "../../platform/prisma.service";
 import { RedisService } from "../../platform/redis.service";
+import { CredentialIssuer } from "../credentials";
 import { decryptEnvelope } from "./exam-crypto";
 import { KEY_PROVIDER, type KeyProvider } from "./key-provider";
 import {
@@ -53,6 +54,7 @@ export class GradingProcessor implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
     @Inject(KEY_PROVIDER) private readonly keyProvider: KeyProvider,
+    private readonly credentialIssuer: CredentialIssuer,
   ) {}
 
   onModuleInit(): void {
@@ -97,7 +99,12 @@ export class GradingProcessor implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`attempt ${attemptId} not found — dropping grading job`);
       return;
     }
-    if (attempt.state === "graded") return; // idempotent replay
+    if (attempt.state === "graded") {
+      // Idempotent replay — but a retry whose earlier run crashed between
+      // grading and issuance must still produce the badge (issuer dedupes).
+      await this.credentialIssuer.issueForGradedAttempt(attemptId);
+      return;
+    }
     if (attempt.state !== "submitted" && attempt.state !== "grading") {
       this.logger.warn(
         `attempt ${attemptId} is ${attempt.state} — not gradeable, dropping job`,
@@ -151,6 +158,11 @@ export class GradingProcessor implements OnModuleInit, OnModuleDestroy {
       [attemptId, scoreRaw, scoreTotal],
     );
     this.logger.log(`graded attempt ${attemptId}: ${scoreRaw}/${scoreTotal}`);
+
+    // Phase IV: a graded attempt earns its badge. Idempotent (partial unique
+    // index); if THIS call fails, the BullMQ retry re-enters process() in the
+    // graded branch above, so issuance is never lost.
+    await this.credentialIssuer.issueForGradedAttempt(attemptId);
   }
 
   /** Envelope → plaintext { value } — null (plus a warning) on any failure. */

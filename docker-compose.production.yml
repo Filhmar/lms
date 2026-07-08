@@ -71,3 +71,17 @@ services:
         limits:
           cpus: "1"
           memory: 512m
+
+  # Front with the portal's own CDN/ingress domain (verify.deped.gov.ph) —
+  # deliberately never published from this compose network directly.
+  verify:
+    restart: always
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rl}:${POSTGRES_PASSWORD:?set in .env.production}@postgres:5432/${POSTGRES_DB:-resilient_learn}
+    logging: *prod-logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m

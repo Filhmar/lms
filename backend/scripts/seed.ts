@@ -1,5 +1,5 @@
 /**
- * Idempotent Phase I–III seed (run with: pnpm seed  /  npx tsx scripts/seed.ts).
+ * Idempotent Phase I–IV seed (run with: pnpm seed  /  npx tsx scripts/seed.ts).
  *
  * Seeds the DepEd demo chain used by the frontend fixtures:
  *   Central Office → Region IV-A → Division of Cavite → Dasmariñas District
@@ -7,9 +7,12 @@
  * plus a central admin, the demo student Ana Reyes (San Isidro), the demo
  * student Jose Rizal (Salawag), the published Phase II exam
  * "Science 8 · Quarter 2 Periodical" (12 items, 30 min) owned by San Isidro,
- * and the published Phase III course "Science 8" (3 chapters, 12 pages —
+ * the published Phase III course "Science 8" (3 chapters, 12 pages —
  * text/markdown + one video asset via the ObjectStorage port + one
- * assessment_embed referencing the seeded exam), same owner scope.
+ * assessment_embed referencing the seeded exam), same owner scope, and the
+ * Phase IV pieces: Ed25519 issuer key v1 + the design's demo certificate
+ * pair for Ana (8KX2-94QF active / 8KX2-94QG revoked) + her exam badge when
+ * the attempt is already graded — all via the real issuance code path.
  *
  * Uses the raw pg driver (fully qualified table names) + Argon2id hashes.
  */
@@ -24,8 +27,13 @@ import type { PoolClient } from "pg";
 import { loadDotEnv } from "../src/platform/config";
 import type { ConfigService } from "../src/platform/config";
 import { LocalFsStorage } from "../src/platform/storage/local-fs.driver";
-// Pure node:crypto helper (no Nest wiring) — scripts import it directly.
+// Pure node:crypto helpers (no Nest wiring) — scripts import them directly.
 import { generateExamKeyPair } from "../src/modules/cbt/exam-crypto";
+import {
+  ensureIssuerKeyV1,
+  issueBadgeForGradedAttempt,
+  issueCredential,
+} from "../src/modules/credentials/issue-credential";
 
 // Fixed UUIDs make the seed idempotent and the demo chain addressable.
 const SCOPES = [
@@ -428,6 +436,98 @@ async function seedCourse(
   return { pages, videoBytes: video.data.length, realVideo: video.real };
 }
 
+/* ------------------- Phase IV — demo credentials (design) ------------------- */
+
+const DEMO_CERT_ACTIVE = { controlNo: "2026-04-118203", verifyCode: "8KX2-94QF" };
+const DEMO_CERT_REVOKED = { controlNo: "2026-04-118204", verifyCode: "8KX2-94QG" };
+const DEMO_REVOKE_REASON = "Issued in error — duplicate record";
+
+/**
+ * Phase IV seed: ensure Ed25519 issuer key v1, then (deterministically —
+ * skipped when the fixed codes already exist) force-issue the design's demo
+ * pair for Ana: the "Grade 7 Completion" certificate 8KX2-94QF (active,
+ * control 2026-04-118203) and its revoked duplicate 8KX2-94QG. Finally, if
+ * Ana's attempt on the seeded exam is already graded, issue her badge via
+ * the SAME issuance path the grading worker uses (idempotent).
+ */
+async function seedCredentials(client: PoolClient): Promise<string[]> {
+  const notes: string[] = [];
+  const verifyBase = (process.env.VERIFY_PUBLIC_BASE ?? "http://localhost:3000/verify")
+    .replace(/\/+$/, "");
+  const key = await ensureIssuerKeyV1(client);
+  notes.push("issuer key v1 (Ed25519) present");
+
+  const ana = await client.query<{ id: string; full_name: string }>(
+    `SELECT id, full_name FROM auth.users WHERE email = 'ana.reyes@deped.gov.ph'`,
+  );
+  const anaRow = ana.rows[0];
+  if (!anaRow) return notes;
+
+  const existing = await client.query(
+    `SELECT 1 FROM creds.credentials WHERE verify_code = ANY($1::text[])`,
+    [[DEMO_CERT_ACTIVE.verifyCode, DEMO_CERT_REVOKED.verifyCode]],
+  );
+  if (existing.rowCount === 0) {
+    const base = {
+      userId: anaRow.id,
+      kind: "certificate" as const,
+      title: "Grade 7 Completion",
+      holderName: anaRow.full_name,
+      issuedScopeId: SCOPES[4].id, // San Isidro NHS
+      snapshotExtra: { courseTitle: "Grade 7 Completion", demo: true },
+      key,
+      verifyBase,
+    };
+    await issueCredential(client, { ...base, forced: DEMO_CERT_ACTIVE });
+    const dup = await issueCredential(client, { ...base, forced: DEMO_CERT_REVOKED });
+    if (dup) {
+      // Revoke the duplicate exactly like the admin endpoint: registry +
+      // read model + audit together (this whole seed runs in one tx).
+      await client.query(
+        `UPDATE creds.credentials
+         SET status = 'revoked', revoked_reason = $2, revoked_at = now()
+         WHERE id = $1::uuid`,
+        [dup.id, DEMO_REVOKE_REASON],
+      );
+      await client.query(
+        `UPDATE creds.verify_read SET status = 'revoked' WHERE verify_code = $1`,
+        [dup.verifyCode],
+      );
+      await client.query(
+        `INSERT INTO creds.audit (credential_id, action, actor_user_id, reason)
+         VALUES ($1::uuid, 'revoked', NULL, $2)`,
+        [dup.id, DEMO_REVOKE_REASON],
+      );
+    }
+    notes.push(
+      `demo certificates ${DEMO_CERT_ACTIVE.verifyCode} (active) + ${DEMO_CERT_REVOKED.verifyCode} (revoked)`,
+    );
+  } else {
+    notes.push("demo certificates already present — skipped");
+  }
+
+  // Badge for Ana's graded attempt (if any) — the grading worker's own path.
+  const attempt = await client.query<{ id: string }>(
+    `SELECT id FROM cbt.attempts
+     WHERE exam_id = $1::uuid AND user_id = $2::uuid AND state = 'graded'`,
+    [EXAM_ID, anaRow.id],
+  );
+  if (attempt.rows[0]) {
+    const badge = await issueBadgeForGradedAttempt(
+      client,
+      attempt.rows[0].id,
+      key,
+      verifyBase,
+    );
+    notes.push(
+      badge
+        ? `exam badge issued for Ana (${badge.verifyCode})`
+        : "exam badge for Ana already present — skipped",
+    );
+  }
+  return notes;
+}
+
 async function main(): Promise<void> {
   loadDotEnv(process.cwd());
   const databaseUrl = process.env.DATABASE_URL;
@@ -521,6 +621,9 @@ async function main(): Promise<void> {
     // --- Phase III course (same owner scope as the exam) --------------------
     const course = await seedCourse(client, admin.rows[0]!.id);
 
+    // --- Phase IV issuer key + demo credentials ------------------------------
+    const credNotes = await seedCredentials(client);
+
     await client.query("COMMIT");
     console.log("Seed complete:");
     for (const scope of SCOPES) console.log(`  scope ${scope.level.padEnd(8)} ${scope.name} (${scope.id})`);
@@ -530,6 +633,7 @@ async function main(): Promise<void> {
       `  course published    Science 8 (${COURSE_ID}, ${COURSE_CHAPTERS.length} chapters, ${course.pages} pages, ` +
         `video asset ${course.videoBytes} bytes${course.realVideo ? "" : " — placeholder binary; real media arrives with the media pipeline"})`,
     );
+    for (const note of credNotes) console.log(`  creds ${note}`);
   } catch (err) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw err;

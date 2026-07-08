@@ -1,0 +1,27 @@
+{
+  "name": "@rl/verify",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Resilient-Learn Phase IV — standalone read-only credential verification service (Fastify). Reads ONLY creds.verify_read + creds.issuer_keys; zero imports from backend/.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rl/schemas": "workspace:*",
+    "fastify": "^5.0.0",
+    "ioredis": "5.10.1",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}

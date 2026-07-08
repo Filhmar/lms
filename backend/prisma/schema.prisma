@@ -1,6 +1,6 @@
-// Resilient-Learn Phase I–III schema — one PostgreSQL database, schema-per-module
-// ownership (auth.*, org.*, prov.*, cbt.*, courses.*). Fully qualify these
-// tables in raw SQL.
+// Resilient-Learn Phase I–IV schema — one PostgreSQL database, schema-per-module
+// ownership (auth.*, org.*, prov.*, cbt.*, courses.*, creds.*). Fully qualify
+// these tables in raw SQL.
 
 generator client {
   provider     = "prisma-client"
@@ -12,7 +12,7 @@ generator client {
 // adapter (runtime) — Prisma 7 removed `url` from schema files.
 datasource db {
   provider = "postgresql"
-  schemas  = ["auth", "org", "prov", "cbt", "courses"]
+  schemas  = ["auth", "org", "prov", "cbt", "courses", "creds"]
 }
 
 /* --------------------------------- org ---------------------------------- */
@@ -400,4 +400,109 @@ model CourseProgress {
   @@index([userId, courseId])
   @@map("progress")
   @@schema("courses")
+}
+
+/* --------------------------------- creds -------------------------------- */
+
+/// Phase IV issuer signing keys — Ed25519, versioned (key_version recorded in
+/// every assertion so a rotated/compromised key never invalidates history).
+/// ⚠️ DEV-GRADE KEY CUSTODY ⚠️ — like cbt.exams, the Ed25519 private key sits
+/// in the database in PLAINTEXT. Production custody is a KMS (Azure Key
+/// Vault / AWS KMS / Vault): signing must then happen inside the KMS and the
+/// key must never leave it. Never expose this column through any API
+/// response or log.
+model IssuerKey {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  version       Int      @unique
+  /// SPKI PEM — public; served to verifiers (backend + verify service).
+  publicKeyPem  String   @map("public_key_pem")
+  /// PKCS#8 PEM — issuance-side only (see custody warning above).
+  privateKeyPem String   @map("private_key_pem")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("issuer_keys")
+  @@schema("creds")
+}
+
+/// Phase IV micro-credential: a cryptographic assertion, not a PDF. The
+/// signed Open Badges 3.0 VC (Ed25519 eddsa-jcs-2022 Data Integrity proof)
+/// lives in `vc`; `metadata_snapshot` preserves holder/scope/source names so
+/// proof survives even if the source exam/course/user is deleted.
+/// Idempotent issuance: partial UNIQUE(user_id, exam_id) and
+/// UNIQUE(user_id, course_id) indexes (hand-edited into the migration —
+/// Prisma doesn't model partial indexes).
+model Credential {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  /// 'badge' | 'certificate' (CHECK-constrained in the migration).
+  kind             String
+  title            String
+  /// Medallion monogram, e.g. "S8" (subject initial + grade digits).
+  monogram         String
+  /// Human-readable registry number: YYYY-MM-NNNNNN (creds.control_no_seq).
+  controlNo        String    @unique @map("control_no")
+  /// Public lookup code XXXX-XXXX from the unambiguous A-Z2-9 alphabet
+  /// (no I/L/O/0/1) — the QR / verify-portal key.
+  verifyCode       String    @unique @map("verify_code")
+  /// References cbt.exams / courses.courses — deliberately NOT cross-schema
+  /// FKs (module seam; the snapshot must survive source deletion anyway).
+  examId           String?   @map("exam_id") @db.Uuid
+  courseId         String?   @map("course_id") @db.Uuid
+  issuedScopeId    String    @map("issued_scope_id") @db.Uuid
+  /// e.g. "San Isidro NHS, Division of Cavite, Region IV-A" (breadcrumb).
+  issuerLine       String    @map("issuer_line")
+  /// Holder full name, scope names, source title, score — survives deletion.
+  metadataSnapshot Json      @map("metadata_snapshot")
+  /// The signed OpenBadgeCredential (DataIntegrityProof eddsa-jcs-2022).
+  vc               Json
+  /// sha256 hex of the JCS-canonicalized UNSIGNED VC.
+  assertionHash    String    @map("assertion_hash")
+  keyVersion       Int       @map("key_version")
+  /// 'active' | 'revoked' (CHECK-constrained in the migration).
+  status           String    @default("active")
+  revokedReason    String?   @map("revoked_reason")
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  issuedAt         DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@index([issuedScopeId, issuedAt])
+  @@map("credentials")
+  @@schema("creds")
+}
+
+/// The verify portal's ONLY table (plus issuer_keys' public half): a
+/// denormalized read model with no joins against users/courses — written
+/// transactionally with creds.credentials on issue/revoke/restore. Names are
+/// pre-masked; nothing here identifies the holder beyond the masked name.
+model VerifyRead {
+  verifyCode    String   @id @map("verify_code")
+  /// 'active' | 'revoked' (mirror of credentials.status).
+  status        String
+  maskedName    String   @map("masked_name")
+  title         String
+  issuerLine    String   @map("issuer_line")
+  issuedAt      DateTime @map("issued_at") @db.Timestamptz(6)
+  controlNo     String   @map("control_no")
+  assertionHash String   @map("assertion_hash")
+  vc            Json
+  keyVersion    Int      @map("key_version")
+
+  @@map("verify_read")
+  @@schema("creds")
+}
+
+/// Append-only credential audit trail: issued | revoked | restored.
+/// actor_user_id is NULL for system actions (automatic issuance).
+model CredentialAudit {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  credentialId String   @map("credential_id") @db.Uuid
+  /// 'issued' | 'revoked' | 'restored' (CHECK-constrained in the migration).
+  action       String
+  actorUserId  String?  @map("actor_user_id") @db.Uuid
+  reason       String?
+  at           DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([credentialId, at])
+  @@map("audit")
+  @@schema("creds")
 }

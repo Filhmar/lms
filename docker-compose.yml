@@ -20,6 +20,10 @@ x-backend-env: &backend-env
   STORAGE_DIR: /data/storage
   PORT: "3200"
   METRICS_PORT: "9464"
+  # Public base URL of the credential verify portal — baked into issued VCs
+  # (issuer id / verificationMethod / QR URL). Empty = dev default
+  # (http://localhost:3000/verify); staging/production set the portal domain.
+  VERIFY_PUBLIC_BASE: ${VERIFY_PUBLIC_BASE:-}
   # Phone-OTP activation SMS: mock (logs codes) or http gateway (URL+key required).
   SMS_DRIVER: ${SMS_DRIVER:-mock}
   SMS_HTTP_URL: ${SMS_HTTP_URL:-}
@@ -102,6 +106,33 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/screens"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+      start_period: 10s
+
+  # Phase IV standalone credential verification portal — read-only by design
+  # (creds.verify_read + creds.issuer_keys only), rate-limited, public. No
+  # base port: real deploys front it with its own CDN/ingress domain (e.g.
+  # verify.deped.gov.ph); the development overlay publishes :3300 for tests.
+  verify:
+    image: rl-verify:${TAG:-local}
+    build:
+      context: .
+      target: verify
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rl}:${POSTGRES_PASSWORD:-rl_dev_password}@postgres:5432/${POSTGRES_DB:-resilient_learn}
+      REDIS_URL: redis://redis:6379
+      VERIFY_PORT: "3300"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3300/healthz"]
       interval: 10s
       timeout: 4s
       retries: 6
