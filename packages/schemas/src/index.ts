@@ -486,6 +486,74 @@ export const CourseProgressResponseSchema = z.object({
 });
 export type CourseProgressResponse = z.infer<typeof CourseProgressResponseSchema>;
 
+/* ------------------- Phase IV — credentials & verification ------------------- */
+
+export const CredentialKinds = ["badge", "certificate"] as const;
+export const CredentialKindSchema = z.enum(CredentialKinds);
+export type CredentialKind = z.infer<typeof CredentialKindSchema>;
+
+export const CredentialStatuses = ["active", "revoked"] as const;
+export const CredentialStatusSchema = z.enum(CredentialStatuses);
+export type CredentialStatus = z.infer<typeof CredentialStatusSchema>;
+
+/** Wallet entry (the holder's own view — unmasked). */
+export const CredentialListItemSchema = z.object({
+  id: z.uuid(),
+  kind: CredentialKindSchema,
+  title: z.string(),
+  /** e.g. "S8" — medallion monogram. */
+  monogram: z.string(),
+  status: CredentialStatusSchema,
+  controlNo: z.string(),
+  verifyCode: z.string(),
+  issuedAt: z.iso.datetime({ offset: true }),
+  issuerLine: z.string(),
+});
+export type CredentialListItem = z.infer<typeof CredentialListItemSchema>;
+
+export const CredentialDetailSchema = CredentialListItemSchema.extend({
+  holderName: z.string(),
+  /** Public verification URL (QR payload). */
+  verifyUrl: z.string(),
+  /** The signed Open Badges 3.0 verifiable credential (Ed25519 Data
+   *  Integrity proof; metadata_snapshot semantics — survives source deletion). */
+  vc: z.record(z.string(), z.unknown()),
+});
+export type CredentialDetail = z.infer<typeof CredentialDetailSchema>;
+
+/** Public verify outcome — never exposes email/phone/ID; name is masked. */
+export const VerifyStatuses = ["verified", "revoked", "not_found"] as const;
+export const VerifyResponseSchema = z.object({
+  status: z.enum(VerifyStatuses),
+  /** Present for verified/revoked. */
+  maskedName: z.string().nullable(),
+  title: z.string().nullable(),
+  issuerLine: z.string().nullable(),
+  issuedAt: z.iso.datetime({ offset: true }).nullable(),
+  controlNo: z.string().nullable(),
+  /** Signature check result (verified at read time with the issuer key). */
+  signatureValid: z.boolean().nullable(),
+});
+export type VerifyResponse = z.infer<typeof VerifyResponseSchema>;
+
+/** Masks all but the first letter of each name word: "Ana D. Reyes" → "A** D. R****". */
+export function maskName(fullName: string): string {
+  return fullName
+    .trim()
+    .split(/\s+/)
+    .map((w) =>
+      /^[A-Za-z]\.?$/.test(w) || w.length <= 2
+        ? w
+        : `${w[0]}${"*".repeat(Math.min(w.length - 1, 5))}`,
+    )
+    .join(" ");
+}
+
+export const RevokeCredentialRequestSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+export type RevokeCredentialRequest = z.infer<typeof RevokeCredentialRequestSchema>;
+
 export const JobStatuses = ["queued", "processing", "completed", "failed"] as const;
 export const JobStatusSchema = z.enum(JobStatuses);
 export type JobStatus = z.infer<typeof JobStatusSchema>;
