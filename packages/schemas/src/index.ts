@@ -130,7 +130,162 @@ export const BreadcrumbResponseSchema = z.object({
 });
 export type BreadcrumbResponse = z.infer<typeof BreadcrumbResponseSchema>;
 
+/* ------------------------ Role ↔ level invariant ------------------------ */
+
+/**
+ * Confirmed hierarchy refinement: every role is anchored to exactly one
+ * scope level — a division_admin sits at a division scope, students and
+ * teachers at a school. Enforced by the API on user create/update and on
+ * every bulk-import row. (Users are single-scope in Phase I; a
+ * user_scope_roles join table is the documented multi-scope migration.)
+ */
+export const RoleLevel: Record<UserRole, ScopeLevel> = {
+  student: "school",
+  teacher: "school",
+  school_admin: "school",
+  district_admin: "district",
+  division_admin: "division",
+  region_admin: "region",
+  central_admin: "central",
+};
+
+export function roleAllowedAtLevel(role: UserRole, level: ScopeLevel): boolean {
+  return RoleLevel[role] === level;
+}
+
+/* ------------------------------ Phone (PH) ------------------------------ */
+
+/** Philippine mobile in E.164: +639XXXXXXXXX. */
+export const PhPhoneSchema = z
+  .string()
+  .regex(/^\+639\d{9}$/, "Use a Philippine mobile number, e.g. 09171234567");
+export type PhPhone = z.infer<typeof PhPhoneSchema>;
+
+/** Normalizes 09…, 639…, +63 9… (spaces/dashes tolerated) to +639XXXXXXXXX; null if not a PH mobile. */
+export function normalizePhPhone(raw: string): string | null {
+  const digits = raw.replace(/[\s\-().]/g, "");
+  const m =
+    /^(?:\+?63|0)(9\d{9})$/.exec(digits) ?? /^(9\d{9})$/.exec(digits);
+  return m ? `+63${m[1]}` : null;
+}
+
+/** Masks all but the last 4 digits: +63••••••1234. */
+export function maskPhone(phone: string): string {
+  return `${phone.slice(0, 3)}${"•".repeat(6)}${phone.slice(-4)}`;
+}
+
+/* --------------------------------- Users -------------------------------- */
+
+export const UserSchema = z.object({
+  id: z.uuid(),
+  email: z.email(),
+  fullName: z.string(),
+  role: UserRoleSchema,
+  status: UserStatusSchema,
+  scopeId: z.uuid(),
+  scopeName: z.string(),
+  scopeLevel: ScopeLevelSchema,
+  /** Masked except for the caller's own record. */
+  phoneMasked: z.string().nullable(),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type User = z.infer<typeof UserSchema>;
+
+export const ListUsersQuerySchema = z.object({
+  /** Root of the search; must be the caller's scope or a descendant. Defaults to the caller's scope. */
+  scopeId: z.uuid().optional(),
+  /** true (default) searches the whole subtree under scopeId; false = that scope only. */
+  includeDescendants: z.coerce.boolean().default(true),
+  role: UserRoleSchema.optional(),
+  status: UserStatusSchema.optional(),
+  /** Case-insensitive match on name or email. */
+  q: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(20),
+});
+export type ListUsersQuery = z.infer<typeof ListUsersQuerySchema>;
+
+export const ListUsersResponseSchema = z.object({
+  items: z.array(UserSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+});
+export type ListUsersResponse = z.infer<typeof ListUsersResponseSchema>;
+
+export const CreateUserRequestSchema = z.object({
+  email: z.email(),
+  fullName: z.string().trim().min(1).max(200),
+  role: UserRoleSchema,
+  scopeId: z.uuid(),
+  phone: PhPhoneSchema,
+});
+export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>;
+
+export const UpdateUserRequestSchema = z.object({
+  fullName: z.string().trim().min(1).max(200).optional(),
+  role: UserRoleSchema.optional(),
+  status: UserStatusSchema.optional(),
+  phone: PhPhoneSchema.optional(),
+});
+export type UpdateUserRequest = z.infer<typeof UpdateUserRequestSchema>;
+
+export const MeResponseSchema = z.object({
+  user: UserSchema,
+  /** Breadcrumb chain for the user's scope, Central first. */
+  breadcrumb: z.array(ScopeWithDepthSchema),
+});
+export type MeResponse = z.infer<typeof MeResponseSchema>;
+
+/* -------------------- Activation (phone OTP, Usapp-style) -------------------- */
+
+export const ActivationRequestSchema = z.object({
+  email: z.email(),
+});
+export type ActivationRequest = z.infer<typeof ActivationRequestSchema>;
+
+export const ActivationRequestResponseSchema = z.object({
+  /** e.g. +63••••••1234 — never the full number. */
+  maskedPhone: z.string(),
+  expiresInSec: z.number().int().positive(),
+  /**
+   * Development convenience ONLY (SMS_DRIVER=mock + NODE_ENV=development):
+   * the code is surfaced so flows can be exercised without a real SMS
+   * provider. Absent in staging/production.
+   */
+  devCode: z.string().optional(),
+});
+export type ActivationRequestResponse = z.infer<typeof ActivationRequestResponseSchema>;
+
+export const ActivationConfirmSchema = z.object({
+  email: z.email(),
+  code: z.string().regex(/^\d{6}$/),
+  newPassword: z.string().min(8).max(256),
+});
+export type ActivationConfirm = z.infer<typeof ActivationConfirmSchema>;
+
+/* ------------------------------ Scope stats ------------------------------ */
+
+export const ScopeStatsResponseSchema = z.object({
+  scopeId: z.uuid(),
+  /** Counts across the scope's whole subtree (self included). */
+  users: z.object({
+    total: z.number().int().nonnegative(),
+    active: z.number().int().nonnegative(),
+    pendingActivation: z.number().int().nonnegative(),
+    disabled: z.number().int().nonnegative(),
+    students: z.number().int().nonnegative(),
+    teachers: z.number().int().nonnegative(),
+  }),
+  /** Direct children of this scope. */
+  childScopes: z.number().int().nonnegative(),
+});
+export type ScopeStatsResponse = z.infer<typeof ScopeStatsResponseSchema>;
+
 /* ------------------------- Provisioning (async) ------------------------- */
+
+/** Required CSV header for bulk import (order-exact). */
+export const CSV_IMPORT_HEADER = ["email", "full_name", "role", "phone"] as const;
 
 export const JobStatuses = ["queued", "processing", "completed", "failed"] as const;
 export const JobStatusSchema = z.enum(JobStatuses);
