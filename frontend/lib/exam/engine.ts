@@ -464,6 +464,21 @@ async function computeOutboxSummary(): Promise<OutboxSummary> {
   >();
 
   for (const record of records) {
+    // Course progress events share the outbox but have no attempt bookkeeping.
+    if (record.event.kind === "progress") {
+      if (record.status === "pending") {
+        pending += 1;
+        pendingEvents.push(record.event);
+      } else if (record.status === "rejected") {
+        rejected += 1;
+      } else if (
+        record.sentAtMs !== null &&
+        (lastSentMs === null || record.sentAtMs > lastSentMs)
+      ) {
+        lastSentMs = record.sentAtMs;
+      }
+      continue;
+    }
     const attemptId = record.event.attemptId;
     let slot = perAttempt.get(attemptId);
     if (!slot) {

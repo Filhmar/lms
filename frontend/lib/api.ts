@@ -4,8 +4,12 @@
  *   · access token — module memory only, never persisted;
  *   · refresh token — localStorage key `rl-auth-refresh`.
  * On a 401 the wrapper performs a single-flight refresh and retries the
- * request exactly once; if the refresh itself is rejected, the stored
- * session is cleared and a logout event is broadcast for the provider.
+ * request exactly once. The refresh path distinguishes two failures:
+ *   · "rejected" — the endpoint answered 401/403: the session is over
+ *     everywhere; tokens are cleared and a logout event is broadcast;
+ *   · "network"  — the request never reached the service (offline, DNS,
+ *     gateway hiccup): the stored token may still be good, so NOTHING is
+ *     cleared and the caller may keep a cached session alive (offline-first).
  */
 
 import type { TokenPair } from "@rl/schemas";
@@ -81,19 +85,29 @@ function broadcastSessionEnded(): void {
 
 /* -------------------------------- Refresh -------------------------------- */
 
-let refreshInflight: Promise<boolean> | null = null;
+/**
+ * How a refresh attempt ended:
+ *   · "ok"       — a fresh token pair is installed;
+ *   · "network"  — the endpoint never answered (offline / gateway down).
+ *                  The stored refresh token is left intact — retry later;
+ *   · "rejected" — the endpoint explicitly refused the token (401/403).
+ *                  Tokens are cleared and session-ended is broadcast.
+ */
+export type RefreshOutcome = "ok" | "network" | "rejected";
 
-/** Single-flight token refresh. Resolves true when a new pair is installed. */
-export function refreshSession(): Promise<boolean> {
+let refreshInflight: Promise<RefreshOutcome> | null = null;
+
+/** Single-flight token refresh. Resolves "ok" when a new pair is installed. */
+export function refreshSession(): Promise<RefreshOutcome> {
   refreshInflight ??= doRefresh().finally(() => {
     refreshInflight = null;
   });
   return refreshInflight;
 }
 
-async function doRefresh(): Promise<boolean> {
+async function doRefresh(): Promise<RefreshOutcome> {
   const refreshToken = getStoredRefreshToken();
-  if (!refreshToken) return false;
+  if (!refreshToken) return "rejected";
   let res: Response;
   try {
     res = await fetch("/api/v1/auth/refresh", {
@@ -103,17 +117,21 @@ async function doRefresh(): Promise<boolean> {
     });
   } catch {
     // Never end the session over a network hiccup — the token may still be good.
-    return false;
+    return "network";
   }
-  if (!res.ok) {
+  if (res.status === 401 || res.status === 403) {
     // The refresh token was rejected: the session is over everywhere.
     clearTokens();
     broadcastSessionEnded();
-    return false;
+    return "rejected";
+  }
+  if (!res.ok) {
+    // 5xx / gateway trouble — the service didn't judge the token at all.
+    return "network";
   }
   const pair = (await res.json()) as TokenPair;
   setTokens(pair);
-  return true;
+  return "ok";
 }
 
 /* ------------------------------ Core request ----------------------------- */
@@ -139,7 +157,7 @@ async function request(path: string, init: RequestInit, allowRetry: boolean): Pr
   const res = await fetch(`/api/v1${path}`, { ...init, headers });
   if (res.status === 401 && allowRetry && hasStoredSession()) {
     const refreshed = await refreshSession();
-    if (refreshed) return request(path, init, false);
+    if (refreshed === "ok") return request(path, init, false);
   }
   return res;
 }

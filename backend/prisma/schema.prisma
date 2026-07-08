@@ -1,5 +1,6 @@
-// Resilient-Learn Phase I+II schema — one PostgreSQL database, schema-per-module
-// ownership (auth.*, org.*, prov.*, cbt.*). Fully qualify these tables in raw SQL.
+// Resilient-Learn Phase I–III schema — one PostgreSQL database, schema-per-module
+// ownership (auth.*, org.*, prov.*, cbt.*, courses.*). Fully qualify these
+// tables in raw SQL.
 
 generator client {
   provider     = "prisma-client"
@@ -11,7 +12,7 @@ generator client {
 // adapter (runtime) — Prisma 7 removed `url` from schema files.
 datasource db {
   provider = "postgresql"
-  schemas  = ["auth", "org", "prov", "cbt"]
+  schemas  = ["auth", "org", "prov", "cbt", "courses"]
 }
 
 /* --------------------------------- org ---------------------------------- */
@@ -37,6 +38,7 @@ model Scope {
   ancestors   ScopeHierarchy[] @relation("descendant")
   users       User[]
   exams       Exam[]
+  courses     Course[]
 
   @@map("scopes")
   @@schema("org")
@@ -96,10 +98,11 @@ model User {
   phone        String?
   createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  scope         Scope          @relation(fields: [scopeId], references: [id])
-  refreshTokens RefreshToken[]
-  otpRequests   OtpRequest[]
-  attempts      Attempt[]
+  scope          Scope            @relation(fields: [scopeId], references: [id])
+  refreshTokens  RefreshToken[]
+  otpRequests    OtpRequest[]
+  attempts       Attempt[]
+  courseProgress CourseProgress[]
 
   @@index([phone])
   @@map("users")
@@ -306,4 +309,95 @@ model SyncEventRecord {
   @@index([attemptId])
   @@map("sync_events")
   @@schema("cbt")
+}
+
+/* ------------------------------- courses -------------------------------- */
+
+/// Phase III headless course. Same visibility rule as cbt.exams: downward
+/// inheritance via org.scope_hierarchy (a course owned by an ancestor scope
+/// is visible to every descendant scope; siblings are laterally isolated).
+model Course {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title        String
+  subject      String
+  ownerScopeId String   @map("owner_scope_id") @db.Uuid
+  /// 'draft' | 'published' (CHECK-constrained in the migration).
+  status       String   @default("draft")
+  version      Int      @default(1)
+  createdBy    String   @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ownerScope Scope            @relation(fields: [ownerScopeId], references: [id])
+  chapters   Chapter[]
+  progress   CourseProgress[]
+
+  @@index([ownerScopeId, status])
+  @@map("courses")
+  @@schema("courses")
+}
+
+model Chapter {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  courseId String @map("course_id") @db.Uuid
+  seq      Int
+  title    String
+
+  course Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  pages  CoursePage[]
+
+  @@unique([courseId, seq])
+  @@map("chapters")
+  @@schema("courses")
+}
+
+/// Headless page — pure data behind the PWA's type switch. Shape-per-type is
+/// CHECK-constrained in the migration: text_content ⇒ body (markdown);
+/// video ⇒ video_* triple; assessment_embed ⇒ exam_id.
+model CoursePage {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chapterId String @map("chapter_id") @db.Uuid
+  seq       Int
+  /// 'text_content' | 'video' | 'assessment_embed' (CHECK in migration).
+  type      String
+  title     String
+  /// Markdown body for text_content pages.
+  body      String?
+  /// ObjectStorage basename under courses/<course_id>/ — served via
+  /// GET /api/v1/courses/:id/assets/:key (never a raw filesystem path).
+  videoAssetKey      String? @map("video_asset_key")
+  videoSizeBytes     BigInt? @map("video_size_bytes")
+  videoDurationLabel String? @map("video_duration_label")
+  /// References cbt.exams — deliberately NOT a cross-schema FK (module seam);
+  /// validated on write instead (seed today; authoring API later).
+  examId             String? @map("exam_id") @db.Uuid
+
+  chapter  Chapter          @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  progress CourseProgress[]
+
+  @@unique([chapterId, seq])
+  @@map("pages")
+  @@schema("courses")
+}
+
+/// LWW-Element-Set reading progress ("page completed") — identical merge
+/// shape to cbt.answers: keyed (user_id, page_id), one atomic ON CONFLICT
+/// upsert keeps the higher client_ts; server stamps received_at; event_id is
+/// the client idempotency key.
+model CourseProgress {
+  userId     String   @map("user_id") @db.Uuid
+  courseId   String   @map("course_id") @db.Uuid
+  pageId     String   @map("page_id") @db.Uuid
+  clientTs   BigInt   @map("client_ts")
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  eventId    String   @unique @map("event_id") @db.Uuid
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  page   CoursePage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@id([userId, pageId])
+  // Covers the per-course completed count and GET /courses/:id/progress.
+  @@index([userId, courseId])
+  @@map("progress")
+  @@schema("courses")
 }

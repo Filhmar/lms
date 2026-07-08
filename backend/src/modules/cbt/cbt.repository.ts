@@ -1,6 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import type { SyncEvent } from "@rl/schemas";
+import type { AnswerEvent, SubmitEvent } from "@rl/schemas";
 import { PrismaService } from "../../platform/prisma.service";
+
+/** The event kinds the cbt module owns. "progress" events are partitioned
+ *  off by CbtService and handled by the courses module. */
+export type CbtSyncEvent = AnswerEvent | SubmitEvent;
 
 /* ------------------------------ row shapes ------------------------------ */
 
@@ -191,7 +195,7 @@ export class CbtRepository {
    */
   async processSyncBatch(
     userId: string,
-    events: SyncEvent[],
+    events: CbtSyncEvent[],
   ): Promise<{ results: SyncResult[]; submittedAttemptIds: string[] }> {
     const results = new Map<number, SyncResult>();
     const submittedAttemptIds: string[] = [];

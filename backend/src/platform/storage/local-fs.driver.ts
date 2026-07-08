@@ -4,7 +4,7 @@ import { dirname, join, normalize, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "../config";
-import type { ObjectStorage } from "./object-storage.port";
+import type { ByteRange, ObjectStorage } from "./object-storage.port";
 
 /** Local filesystem ObjectStorage driver (dev / single-node deployments). */
 @Injectable()
@@ -29,8 +29,9 @@ export class LocalFsStorage implements ObjectStorage {
     await writeFile(path, data);
   }
 
-  async getStream(key: string): Promise<Readable> {
-    return createReadStream(this.resolveKey(key));
+  async getStream(key: string, range?: ByteRange): Promise<Readable> {
+    // createReadStream start/end are inclusive — same semantics as the port.
+    return createReadStream(this.resolveKey(key), range ? { ...range } : undefined);
   }
 
   async exists(key: string): Promise<boolean> {

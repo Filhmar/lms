@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth";
+import { CoursesModule } from "../courses";
 import { OrgHierarchyModule } from "../org-hierarchy";
 import { AttemptsController } from "./attempts.controller";
 import { CbtRepository } from "./cbt.repository";
@@ -11,7 +12,8 @@ import { DbKeyProvider, KEY_PROVIDER } from "./key-provider";
 import { SyncController } from "./sync.controller";
 
 @Module({
-  imports: [AuthModule, OrgHierarchyModule],
+  // CoursesModule provides the "progress" leg of POST /sync/batch.
+  imports: [AuthModule, OrgHierarchyModule, CoursesModule],
   controllers: [ExamsController, SyncController, AttemptsController],
   providers: [
     CbtService,

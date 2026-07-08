@@ -10,14 +10,21 @@ import type {
   AttemptStatusResponse,
   ExamListItem,
   ExamPackage,
+  ProgressEvent,
   StartAttemptResponse,
   SyncBatchRequest,
   SyncBatchResponse,
   UserRole,
 } from "@rl/schemas";
 import type { AuthenticatedUser } from "../auth";
+import { CourseProgressSyncService } from "../courses";
 import { ScopeAccessService } from "../org-hierarchy";
-import { CbtRepository, type AttemptRow, type ExamRow } from "./cbt.repository";
+import {
+  CbtRepository,
+  type AttemptRow,
+  type CbtSyncEvent,
+  type ExamRow,
+} from "./cbt.repository";
 import { GradingQueue } from "./grading.queue";
 
 /** Calm student-facing copy — no "sync"/"server"/"error" words. */
@@ -34,6 +41,7 @@ export class CbtService {
     private readonly repo: CbtRepository,
     private readonly scopeAccess: ScopeAccessService,
     private readonly gradingQueue: GradingQueue,
+    private readonly progressSync: CourseProgressSyncService,
   ) {}
 
   /** GET /exams — the caller's visible exams with their own attempt folded in. */
@@ -113,22 +121,58 @@ export class CbtService {
   }
 
   /**
-   * POST /sync/batch — drip sync. One transaction per batch; outcomes in
-   * input order; grading jobs enqueue only after the transaction commits.
+   * POST /sync/batch — drip sync. The batch is partitioned by event kind:
+   * answer/submit stay in this module (one transaction, unchanged); progress
+   * events go to the courses module (its own transaction, same LWW shape).
+   * Outcomes are reassembled in input order; grading jobs enqueue only after
+   * the cbt transaction commits.
    */
   async syncBatch(
     body: SyncBatchRequest,
     actor: AuthenticatedUser,
   ): Promise<SyncBatchResponse> {
-    const { results, submittedAttemptIds } = await this.repo.processSyncBatch(
-      actor.sub,
-      body.events,
-    );
-    for (const attemptId of submittedAttemptIds) {
-      // ~3s delay lets trailing answer drips land before grading snapshots.
-      await this.gradingQueue.enqueueGrading(attemptId);
+    const cbtEvents: Array<{ index: number; event: CbtSyncEvent }> = [];
+    const progressEvents: Array<{ index: number; event: ProgressEvent }> = [];
+    body.events.forEach((event, index) => {
+      // Exhaustive on purpose: a future SyncEvent kind must fail compilation
+      // here (and loudly at runtime), never merge silently as the wrong kind.
+      switch (event.kind) {
+        case "answer":
+        case "submit":
+          cbtEvents.push({ index, event });
+          break;
+        case "progress":
+          progressEvents.push({ index, event });
+          break;
+        default:
+          assertNeverSyncEvent(event);
+      }
+    });
+
+    const merged: SyncBatchResponse["results"] = new Array(body.events.length);
+
+    if (cbtEvents.length > 0) {
+      const { results, submittedAttemptIds } = await this.repo.processSyncBatch(
+        actor.sub,
+        cbtEvents.map((e) => e.event),
+      );
+      cbtEvents.forEach((e, i) => (merged[e.index] = results[i]!));
+      for (const attemptId of submittedAttemptIds) {
+        // ~3s delay lets trailing answer drips land before grading snapshots.
+        await this.gradingQueue.enqueueGrading(attemptId);
+      }
     }
-    return { results };
+
+    if (progressEvents.length > 0) {
+      const results = await this.progressSync.process(
+        actor.sub,
+        actor.scopeId,
+        progressEvents.map((e) => e.event),
+      );
+      progressEvents.forEach((e, i) => (merged[e.index] = results[i]!));
+    }
+
+    return { results: merged };
   }
 
   /**
@@ -182,6 +226,12 @@ export class CbtService {
       deadlineAt: attempt.deadline_at.toISOString(),
     };
   }
+}
+
+function assertNeverSyncEvent(event: never): never {
+  throw new Error(
+    `Unhandled sync event kind: ${JSON.stringify((event as { kind?: string }).kind)}`,
+  );
 }
 
 function formatScore(

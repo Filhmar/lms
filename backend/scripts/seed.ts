@@ -1,20 +1,29 @@
 /**
- * Idempotent Phase I+II seed (run with: pnpm seed  /  npx tsx scripts/seed.ts).
+ * Idempotent Phase I–III seed (run with: pnpm seed  /  npx tsx scripts/seed.ts).
  *
  * Seeds the DepEd demo chain used by the frontend fixtures:
  *   Central Office → Region IV-A → Division of Cavite → Dasmariñas District
  *   → San Isidro NHS (+ sibling Salawag NHS for lateral-isolation checks)
  * plus a central admin, the demo student Ana Reyes (San Isidro), the demo
- * student Jose Rizal (Salawag), and the published Phase II exam
- * "Science 8 · Quarter 2 Periodical" (12 items, 30 min) owned by San Isidro.
+ * student Jose Rizal (Salawag), the published Phase II exam
+ * "Science 8 · Quarter 2 Periodical" (12 items, 30 min) owned by San Isidro,
+ * and the published Phase III course "Science 8" (3 chapters, 12 pages —
+ * text/markdown + one video asset via the ObjectStorage port + one
+ * assessment_embed referencing the seeded exam), same owner scope.
  *
  * Uses the raw pg driver (fully qualified table names) + Argon2id hashes.
  */
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import * as argon2 from "argon2";
 import { Pool } from "pg";
 import type { PoolClient } from "pg";
 import { loadDotEnv } from "../src/platform/config";
+import type { ConfigService } from "../src/platform/config";
+import { LocalFsStorage } from "../src/platform/storage/local-fs.driver";
 // Pure node:crypto helper (no Nest wiring) — scripts import it directly.
 import { generateExamKeyPair } from "../src/modules/cbt/exam-crypto";
 
@@ -118,6 +127,307 @@ async function seedExam(client: PoolClient, createdBy: string): Promise<void> {
   }
 }
 
+/* --------------------- Phase III — demo Science 8 course --------------------- */
+
+// Fixed, addressable ids (same trick as the exam): version nibble 4,
+// variant nibble 8, hex-only tails — course cc, chapter c<n>ff, page c<n><pp>.
+const COURSE_ID = "c0a15e00-0000-4000-8000-0000000000cc";
+const chapterUuid = (ch: number) => `c0a15e00-0000-4000-8000-00000000c${ch}ff`;
+const pageUuid = (ch: number, page: number) =>
+  `c0a15e00-0000-4000-8000-00000000c${ch}${String(page).padStart(2, "0")}`;
+
+const VIDEO_ASSET_KEY = "ch3-community-preparedness.mp4";
+
+interface SeedPage {
+  seq: number;
+  type: "text_content" | "video" | "assessment_embed";
+  title: string;
+  body?: string;
+  examId?: string;
+}
+
+/** Chapter/page structure mirrors the design demo
+ *  (frontend/app/courses/course-shared.tsx): Ch1–2 short readings, Ch3
+ *  "Weather disturbances" = the five demo reading pages + the chapter-check
+ *  assessment (page 6, embedding the seeded exam) + one video page. */
+const COURSE_CHAPTERS: Array<{ ch: number; title: string; pages: SeedPage[] }> = [
+  {
+    ch: 1,
+    title: "Earthquakes and faults",
+    pages: [
+      {
+        seq: 1,
+        type: "text_content",
+        title: "Why the ground shakes",
+        body: [
+          "# Why the ground shakes",
+          "",
+          "The Earth's crust is broken into large plates that move slowly past each other. When two blocks of rock suddenly slip along a **fault**, the energy released travels as waves — that is an earthquake.",
+          "",
+          "The Philippines sits where several plates meet, which is why we feel earthquakes often.",
+        ].join("\n"),
+      },
+      {
+        seq: 2,
+        type: "text_content",
+        title: "Faults in the Philippines",
+        body: [
+          "# Faults in the Philippines",
+          "",
+          "A fault is a crack in the crust where rock can move. The **Philippine Fault Zone** runs the length of the country, and the **Valley Fault System** passes near Metro Manila.",
+          "",
+          "- *Active faults* have moved in recent history and can move again.",
+          "- *Inactive faults* show no recent movement.",
+          "",
+          "PHIVOLCS publishes fault maps so communities know what is under their feet.",
+        ].join("\n"),
+      },
+      {
+        seq: 3,
+        type: "text_content",
+        title: "Duck, cover, and hold",
+        body: [
+          "# Duck, cover, and hold",
+          "",
+          "When shaking starts: **duck** under a sturdy table, **cover** your head and neck, and **hold** on until the shaking stops.",
+          "",
+          "After the shaking, move calmly to an open area. Expect aftershocks — they are smaller quakes that follow the main one.",
+        ].join("\n"),
+      },
+    ],
+  },
+  {
+    ch: 2,
+    title: "Typhoons",
+    pages: [
+      {
+        seq: 1,
+        type: "text_content",
+        title: "The Philippine Area of Responsibility",
+        body: [
+          "# The Philippine Area of Responsibility",
+          "",
+          "The **PAR** is the region of the Pacific that PAGASA watches. Once a tropical cyclone crosses into the PAR it receives a local name, and PAGASA begins issuing bulletins for it.",
+          "",
+          "About twenty tropical cyclones enter the PAR every year; eight or nine make landfall.",
+        ].join("\n"),
+      },
+      {
+        seq: 2,
+        type: "text_content",
+        title: "Anatomy of a typhoon",
+        body: [
+          "# Anatomy of a typhoon",
+          "",
+          "A typhoon has three parts:",
+          "",
+          "1. The **eye** — a calm, clear center.",
+          "2. The **eyewall** — the ring of the strongest wind and rain.",
+          "3. The **rainbands** — spiral arms that can stretch hundreds of kilometers.",
+          "",
+          "The calm of the eye can fool people into going outside — the other side of the eyewall arrives quickly.",
+        ].join("\n"),
+      },
+    ],
+  },
+  {
+    ch: 3,
+    title: "Weather disturbances",
+    pages: [
+      {
+        seq: 1,
+        type: "text_content",
+        title: "What is a tropical cyclone?",
+        body: [
+          "# What is a tropical cyclone?",
+          "",
+          "A tropical cyclone is a large rotating storm that forms over warm ocean water. In the Philippines we call the strongest ones **bagyo**.",
+          "",
+          "Every year, about twenty tropical cyclones enter the Philippine Area of Responsibility.",
+        ].join("\n"),
+      },
+      {
+        seq: 2,
+        type: "text_content",
+        title: "How typhoons form",
+        body: [
+          "# How typhoons form",
+          "",
+          "Warm, moist air rises from the sea surface and cooler air rushes in below it. As this cycle repeats, clouds spin into a huge rotating system.",
+          "",
+          "When winds near the center pass **118 km/h**, the storm is called a typhoon.",
+        ].join("\n"),
+      },
+      {
+        seq: 3,
+        type: "text_content",
+        title: "Reading the weather map",
+        body: [
+          "# Reading the weather map",
+          "",
+          "Weather maps show where a storm is, where it is heading, and how wide its winds reach. The **eye** of the storm sits at the center of the spiral.",
+          "",
+          "PAGASA updates the storm track several times a day while a cyclone is inside the Philippine Area of Responsibility.",
+        ].join("\n"),
+      },
+      {
+        seq: 4,
+        type: "text_content",
+        title: "Rainfall and flooding",
+        body: [
+          "# Rainfall and flooding",
+          "",
+          "A slow-moving storm can drop more rain than a fast one, even when its winds are weaker. Low-lying communities watch rainfall warnings closely.",
+          "",
+          "Know where your barangay's evacuation center is **before** the rain starts.",
+        ].join("\n"),
+      },
+      {
+        seq: 5,
+        type: "text_content",
+        title: "Storm signals",
+        body: [
+          "# Public storm warning signals",
+          "",
+          "When a tropical cyclone approaches, PAGASA raises wind signals from 1 to 5. Each signal tells your community how strong winds may get — and how much time you have to prepare.",
+          "",
+          "| Signal | Winds expected | Lead time |",
+          "| --- | --- | --- |",
+          "| **No. 1** | 39–61 km/h | within 36 hours |",
+          "| **No. 2** | 62–88 km/h | within 24 hours |",
+          "| **No. 3** | 89–117 km/h | within 18 hours |",
+          "| **No. 4** | 118–184 km/h | within 12 hours |",
+          "| **No. 5** | 185 km/h and above | within 12 hours |",
+          "",
+          "Classes in your area are suspended automatically at Signal No. 1 for preschool, and higher signals suspend higher levels — listen for your local announcement.",
+        ].join("\n"),
+      },
+      {
+        seq: 6,
+        type: "assessment_embed",
+        title: "Chapter check: Quarter 2 Periodical",
+        examId: EXAM_ID,
+      },
+      {
+        seq: 7,
+        type: "video",
+        title: "Community preparedness",
+        // video_* columns are filled from the stored asset in seedCourse.
+      },
+    ],
+  },
+];
+
+/**
+ * Course video asset: a tiny real MP4 when ffmpeg is available; otherwise an
+ * MP4-shaped placeholder binary (valid ftyp header, no playable track) —
+ * real media arrives with the Phase III media pipeline, and the player's
+ * "not available" state handles a non-decodable asset gracefully.
+ */
+function buildVideoAsset(): { data: Buffer; real: boolean } {
+  const dir = mkdtempSync(join(tmpdir(), "rl-seed-"));
+  const out = join(dir, "seed.mp4");
+  try {
+    execFileSync(
+      "ffmpeg",
+      ["-y", "-loglevel", "error", "-f", "lavfi",
+       "-i", "smptebars=size=320x180:rate=12:duration=2",
+       "-pix_fmt", "yuv420p", "-an", "-movflags", "+faststart", out],
+      { stdio: "ignore" },
+    );
+    return { data: readFileSync(out), real: true };
+  } catch {
+    const ftyp = Buffer.concat([
+      Buffer.from([0, 0, 0, 24]), // box size
+      Buffer.from("ftypisom", "ascii"), // 'ftyp', major brand isom
+      Buffer.from([0, 0, 2, 0]), // minor version
+      Buffer.from("isommp41", "ascii"), // compatible brands
+    ]);
+    const note = Buffer.from(
+      "Resilient-Learn placeholder video asset — real media arrives with the Phase III media pipeline.",
+      "utf8",
+    );
+    const free = Buffer.alloc(8 + note.length);
+    free.writeUInt32BE(8 + note.length, 0);
+    free.write("free", 4, "ascii");
+    note.copy(free, 8);
+    return { data: Buffer.concat([ftyp, free]), real: false };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Publish the demo course owned by San Isidro NHS (same scope as the exam).
+ * Idempotent: fixed ids upserted every run; the video asset is (re)written
+ * through the ObjectStorage port so video_size_bytes always matches the
+ * stored bytes exactly.
+ */
+async function seedCourse(
+  client: PoolClient,
+  createdBy: string,
+): Promise<{ pages: number; videoBytes: number; realVideo: boolean }> {
+  // Storage goes through the port (local-fs driver), never fs paths directly.
+  // Minimal config shim: the driver only reads config.storageDir, and the
+  // full loadConfig() would demand JWT keys this script doesn't need.
+  const storageDir = process.env.STORAGE_DIR ?? ".storage";
+  const storage = new LocalFsStorage({
+    config: { storageDir: isAbsolute(storageDir) ? storageDir : resolve(process.cwd(), storageDir) },
+  } as unknown as ConfigService);
+  const video = buildVideoAsset();
+  await storage.put(`courses/${COURSE_ID}/${VIDEO_ASSET_KEY}`, video.data);
+
+  await client.query(
+    `INSERT INTO courses.courses (id, title, subject, owner_scope_id, status, version, created_by)
+     VALUES ($1, $2, $3, $4, 'published', 1, $5)
+     ON CONFLICT (id) DO UPDATE
+       SET title = EXCLUDED.title, subject = EXCLUDED.subject,
+           owner_scope_id = EXCLUDED.owner_scope_id, status = 'published'`,
+    [COURSE_ID, "Science 8", "Science 8", SCOPES[4].id, createdBy],
+  );
+
+  let pages = 0;
+  for (const chapter of COURSE_CHAPTERS) {
+    await client.query(
+      `INSERT INTO courses.chapters (id, course_id, seq, title)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE SET seq = EXCLUDED.seq, title = EXCLUDED.title`,
+      [chapterUuid(chapter.ch), COURSE_ID, chapter.ch, chapter.title],
+    );
+    for (const page of chapter.pages) {
+      const isVideo = page.type === "video";
+      await client.query(
+        `INSERT INTO courses.pages
+           (id, chapter_id, seq, type, title, body,
+            video_asset_key, video_size_bytes, video_duration_label, exam_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (id) DO UPDATE
+           SET seq = EXCLUDED.seq, type = EXCLUDED.type, title = EXCLUDED.title,
+               body = EXCLUDED.body, video_asset_key = EXCLUDED.video_asset_key,
+               video_size_bytes = EXCLUDED.video_size_bytes,
+               video_duration_label = EXCLUDED.video_duration_label,
+               exam_id = EXCLUDED.exam_id`,
+        [
+          pageUuid(chapter.ch, page.seq),
+          chapterUuid(chapter.ch),
+          page.seq,
+          page.type,
+          page.title,
+          page.body ?? null,
+          isVideo ? VIDEO_ASSET_KEY : null,
+          isVideo ? video.data.length : null,
+          isVideo ? "0:02" : null,
+          // Validated on write (no cross-schema FK): the referenced exam is
+          // seeded above in this same transaction.
+          page.examId ?? null,
+        ],
+      );
+      pages += 1;
+    }
+  }
+  return { pages, videoBytes: video.data.length, realVideo: video.real };
+}
+
 async function main(): Promise<void> {
   loadDotEnv(process.cwd());
   const databaseUrl = process.env.DATABASE_URL;
@@ -208,11 +518,18 @@ async function main(): Promise<void> {
     );
     await seedExam(client, admin.rows[0]!.id);
 
+    // --- Phase III course (same owner scope as the exam) --------------------
+    const course = await seedCourse(client, admin.rows[0]!.id);
+
     await client.query("COMMIT");
     console.log("Seed complete:");
     for (const scope of SCOPES) console.log(`  scope ${scope.level.padEnd(8)} ${scope.name} (${scope.id})`);
     for (const user of users) console.log(`  user  ${user.role.padEnd(13)} ${user.email}`);
     console.log(`  exam  published     Science 8 · Quarter 2 Periodical (${EXAM_ID}, 12 items, 30 min)`);
+    console.log(
+      `  course published    Science 8 (${COURSE_ID}, ${COURSE_CHAPTERS.length} chapters, ${course.pages} pages, ` +
+        `video asset ${course.videoBytes} bytes${course.realVideo ? "" : " — placeholder binary; real media arrives with the media pipeline"})`,
+    );
   } catch (err) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw err;

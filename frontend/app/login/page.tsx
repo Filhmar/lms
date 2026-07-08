@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Chip, Field, Icon } from "@rl/ui";
 import { ApiError } from "@/lib/api";
+import { environment } from "@/lib/copy";
 import { homeRouteFor, useSession } from "@/lib/session";
 
 const MONO = "ui-monospace, Menlo, monospace";
@@ -43,6 +44,14 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showActivateLink, setShowActivateLink] = useState(false);
+
+  /* ?resume=1 — a signed-in-offline session ended while work is still on the
+     phone. window.location (not useSearchParams) keeps this page a plain
+     client shell with no Suspense requirement. */
+  const [resumeHint, setResumeHint] = useState(false);
+  useEffect(() => {
+    setResumeHint(new URLSearchParams(window.location.search).get("resume") === "1");
+  }, []);
 
   /* Already signed in (e.g. back button) → straight to the right home. */
   useEffect(() => {
@@ -136,9 +145,33 @@ export default function LoginPage() {
         </div>
       </div>
 
+      {/* Session ended while work is safe on this phone — calm reassurance */}
+      {resumeHint ? (
+        <div
+          role="status"
+          style={{
+            marginTop: 18,
+            background: "var(--color-synced-bg)",
+            borderRadius: 12,
+            padding: "11px 13px",
+            display: "flex",
+            gap: 9,
+            alignItems: "flex-start",
+            color: "var(--color-synced-fg)",
+          }}
+        >
+          <span style={{ display: "inline-flex", flexShrink: 0, marginTop: 1 }}>
+            <Icon name="phone-check" size={15} />
+          </span>
+          <p style={{ fontSize: 12.5, lineHeight: 1.5, margin: 0, fontWeight: 700 }}>
+            {environment.sessionExpired}
+          </p>
+        </div>
+      ) : null}
+
       {/* Form */}
       <form
-        style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 12 }}
+        style={{ marginTop: resumeHint ? 14 : 24, display: "flex", flexDirection: "column", gap: 12 }}
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
