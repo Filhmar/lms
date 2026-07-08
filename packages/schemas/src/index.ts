@@ -378,9 +378,20 @@ export const SubmitEventSchema = z.object({
 });
 export type SubmitEvent = z.infer<typeof SubmitEventSchema>;
 
+/** Course reading progress — "page completed" (Phase III; same LWW pipeline). */
+export const ProgressEventSchema = z.object({
+  kind: z.literal("progress"),
+  id: z.uuid(),
+  courseId: z.uuid(),
+  pageId: z.uuid(),
+  clientTs: z.number().int().positive(),
+});
+export type ProgressEvent = z.infer<typeof ProgressEventSchema>;
+
 export const SyncEventSchema = z.discriminatedUnion("kind", [
   AnswerEventSchema,
   SubmitEventSchema,
+  ProgressEventSchema,
 ]);
 export type SyncEvent = z.infer<typeof SyncEventSchema>;
 
@@ -411,6 +422,69 @@ export const AttemptStatusResponseSchema = z.object({
   score: z.string().nullable(),
 });
 export type AttemptStatusResponse = z.infer<typeof AttemptStatusResponseSchema>;
+
+/* --------------------- Phase III — headless courses --------------------- */
+
+export const PageTypes = ["text_content", "video", "assessment_embed"] as const;
+export const PageTypeSchema = z.enum(PageTypes);
+export type PageType = z.infer<typeof PageTypeSchema>;
+
+export const CourseListItemSchema = z.object({
+  id: z.uuid(),
+  title: z.string(),
+  subject: z.string(),
+  version: z.number().int().positive(),
+  chapters: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+  completedPages: z.number().int().nonnegative(),
+  /** Approximate manifest download size shown before download (bytes). */
+  manifestBytes: z.number().int().nonnegative(),
+});
+export type CourseListItem = z.infer<typeof CourseListItemSchema>;
+
+/** Headless delivery: pure data, rendered by the PWA's type switch.
+ *  Text bodies ship inline (markdown); video ships an authenticated asset
+ *  path + size (whole-file blob download — the universal offline fallback;
+ *  HLS segmenting is the documented upgrade); assessment embeds reference
+ *  a published exam. */
+export const CoursePageSchema = z.object({
+  id: z.uuid(),
+  seq: z.number().int().positive(),
+  type: PageTypeSchema,
+  title: z.string(),
+  body: z.string().nullable(),
+  video: z
+    .object({
+      assetPath: z.string(),
+      sizeBytes: z.number().int().positive(),
+      durationLabel: z.string(),
+    })
+    .nullable(),
+  examId: z.uuid().nullable(),
+});
+export type CoursePage = z.infer<typeof CoursePageSchema>;
+
+export const CourseManifestSchema = z.object({
+  courseId: z.uuid(),
+  version: z.number().int().positive(),
+  title: z.string(),
+  subject: z.string(),
+  chapters: z.array(
+    z.object({
+      id: z.uuid(),
+      seq: z.number().int().positive(),
+      title: z.string(),
+      pages: z.array(CoursePageSchema),
+    }),
+  ),
+});
+export type CourseManifest = z.infer<typeof CourseManifestSchema>;
+
+export const CourseProgressResponseSchema = z.object({
+  courseId: z.uuid(),
+  completedPageIds: z.array(z.uuid()),
+});
+export type CourseProgressResponse = z.infer<typeof CourseProgressResponseSchema>;
 
 export const JobStatuses = ["queued", "processing", "completed", "failed"] as const;
 export const JobStatusSchema = z.enum(JobStatuses);
