@@ -14,7 +14,14 @@ Turborepo + pnpm monorepo. Implemented so far:
   `/admin/users` (per-branch user management), CSV import + live job progress.
   Sessions: access token in memory, refresh token in localStorage
   (`frontend/lib/api.ts` single-flight refresh + `lib/session.tsx` guards).
-  Phase II–IV screens (exams, courses, downloads, wallet, verify) remain
+  Phase II is REAL too: `/exams` + `/sync` run the offline-first engine in
+  `frontend/lib/exam/` — IndexedDB (`idb`) with answers envelope-encrypted at
+  write time (RSA-OAEP-256+A256GCM against the per-exam key), atomic
+  answer+outbox transactions, drip sync to `/api/v1/sync/batch` (30s/online/
+  visibility triggers + Chromium SW sync tag), server-anchored exam timer,
+  crash recovery from IndexedDB, and server-graded scores. The backend `cbt`
+  module owns exams/attempts/answers, the LWW upsert, and the grading worker.
+  Phase III–IV screens (courses, downloads, wallet, verify) remain
   fixture-driven behind a visible "Preview — demo data" badge; the ⚙ demo
   harness exists only there.
 - `backend` — Phase I NestJS 11 modular monolith (`/api/v1`): stateless auth

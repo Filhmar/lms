@@ -1,28 +1,20 @@
 "use client";
 
 /**
- * Sync Center — standalone route. Same content as the exam journey's
- * Sync Center sheet, reading (and writing back) the same persisted demo
- * snapshot, with the 350ms process tick so drips resolve live here too.
+ * Sync Center — standalone route. Same content as the exam journey's Sync
+ * Center sheet, reading the REAL outbox (IndexedDB) through the shared exam
+ * engine; the drip triggers stay attached while this page is open.
  */
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { SyncPill, Toast, type WorkState } from "@rl/ui";
 import * as copy from "@/lib/copy";
-import { useDemo } from "@/lib/demo";
+import { RequireAuth } from "@/lib/session";
+import * as engine from "@/lib/exam/engine";
+import { useExamEngine } from "@/lib/exam/use-engine";
 import { SyncCenterContent } from "../exams/sync-center";
-import {
-  advanceTick,
-  EXTRAS_TOTAL,
-  loadState,
-  pendingAll,
-  serialize,
-  STORAGE_KEY,
-  strings,
-  TOTAL,
-  type ExamSnapshot,
-} from "../exams/state";
+import { strings } from "../exams/state";
 
 function ChevronLeft({ size = 20 }: { size?: number }) {
   return (
@@ -42,55 +34,15 @@ function ChevronLeft({ size = 20 }: { size?: number }) {
   );
 }
 
-export default function SyncPage() {
-  const { connectivity } = useDemo();
-  const [s, setS] = useState<ExamSnapshot | null>(null);
+function SyncScreen() {
+  const eng = useExamEngine();
   const [toast, setToast] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /* restore the shared snapshot on mount */
-  useEffect(() => {
-    setS(loadState());
-  }, []);
+  if (!eng.ready) return null;
 
-  /* persist on change (deduped) */
-  const lastSnap = useRef("");
-  useEffect(() => {
-    if (!s) return;
-    const snap = serialize(s);
-    if (snap === lastSnap.current) return;
-    lastSnap.current = snap;
-    try {
-      localStorage.setItem(STORAGE_KEY, snap);
-    } catch {
-      /* storage unavailable */
-    }
-  }, [s]);
-
-  /* 350ms process tick — drip send / extras / grading continue here */
-  const tickRef = useRef(0);
-  useEffect(() => {
-    if (!s) return;
-    const id = setInterval(() => {
-      tickRef.current += 1;
-      const tick = tickRef.current;
-      setS((p) => (p ? advanceTick(p, connectivity, tick) : p));
-    }, 350);
-    return () => clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s === null, connectivity]);
-
-  useEffect(
-    () => () => {
-      if (toastTimer.current) clearTimeout(toastTimer.current);
-    },
-    [],
-  );
-
-  if (!s) return null;
-
-  const offline = connectivity === "offline";
-  const pendAll = pendingAll(s);
+  const offline = !eng.online;
+  const pendAll = eng.outbox.pending;
   const pillState: WorkState = pendAll === 0 ? "synced" : !offline ? "sending" : "on-device";
   const pillLabel =
     pillState === "synced"
@@ -99,21 +51,14 @@ export default function SyncPage() {
         ? strings.sendingLeft(pendAll)
         : copy.syncCenter.pillResting(pendAll);
 
-  const sendNow = () => {
+  const sendNow = async () => {
     if (offline) return;
-    setS((p) =>
-      p
-        ? {
-            ...p,
-            sent: p.submitted ? TOTAL : p.sent,
-            extraSent: EXTRAS_TOTAL,
-            lastSync: "just now",
-          }
-        : p,
-    );
-    setToast(strings.toastAllSent);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(""), 1600);
+    const left = await engine.sendNow();
+    if (left === 0) {
+      setToast(strings.toastAllSent);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(() => setToast(""), 1600);
+    }
   };
 
   return (
@@ -158,7 +103,7 @@ export default function SyncPage() {
             padding: 15,
           }}
         >
-          <SyncCenterContent s={s} connectivity={connectivity} onSendNow={sendNow} showTitle={false} />
+          <SyncCenterContent eng={eng} onSendNow={() => void sendNow()} showTitle={false} />
         </div>
       </div>
 
@@ -181,5 +126,13 @@ export default function SyncPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+export default function SyncPage() {
+  return (
+    <RequireAuth>
+      <SyncScreen />
+    </RequireAuth>
   );
 }

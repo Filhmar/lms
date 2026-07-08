@@ -1,20 +1,20 @@
 "use client";
 
 /**
- * Sync Center — the trust ledger. One component, two presentations:
- * bottom sheet on phones / anchored popover at ≥720dp (rendered by the
- * caller), plus the standalone /sync route. Chip grammar per the state
- * language: shape + color + verb, never color alone; offline is calm,
- * never an error.
+ * Sync Center — the trust ledger, now reading the REAL outbox. One
+ * component, two presentations: bottom sheet on phones / anchored popover at
+ * ≥720dp (rendered by the caller), plus the standalone /sync route.
+ * Chip grammar per the state language: shape + color + verb, never color
+ * alone; offline is calm, never an error. Rows are exam events only for now.
  */
 
+import { useEffect, useState } from "react";
 import { Button, Chip, Icon } from "@rl/ui";
-import type { Connectivity } from "@/lib/demo";
 import * as copy from "@/lib/copy";
-import { exam as examFx, outboxExtras, syncPayloadKb } from "@/lib/fixtures";
-import { inProgress, pendingExam, TOTAL, type ExamSnapshot } from "./state";
+import { countAnswered, type EngineState } from "@/lib/exam/engine";
+import { fmtLastSync } from "./state";
 
-type RowChipKind = "done" | "sending" | "local";
+type RowChipKind = "done" | "sending" | "local" | "attention";
 
 function StatusChip({ kind }: { kind: RowChipKind }) {
   if (kind === "done")
@@ -27,6 +27,12 @@ function StatusChip({ kind }: { kind: RowChipKind }) {
     return (
       <Chip tone="sending" size="compact" icon={<Icon name="send" size={11} />}>
         Sending…
+      </Chip>
+    );
+  if (kind === "attention")
+    return (
+      <Chip tone="attention" size="compact" icon={<Icon name="attention" size={11} />}>
+        Ask your teacher
       </Chip>
     );
   return (
@@ -57,52 +63,92 @@ function SyncRow({ title, sub, chip }: { title: string; sub: string; chip: RowCh
   );
 }
 
+interface Row {
+  key: string;
+  title: string;
+  sub: string;
+  chip: RowChipKind;
+}
+
+function buildRows(eng: EngineState): Row[] {
+  const offline = !eng.online;
+  return Object.values(eng.attempts).map((att) => {
+    const title = eng.packages[att.examId]?.title ?? "Exam";
+    if (att.state === "in_progress") {
+      return {
+        key: att.attemptId,
+        title,
+        sub: "In progress — stays on this phone until you submit",
+        chip: "local" as const,
+      };
+    }
+    const ob = eng.outbox.byAttempt[att.attemptId];
+    if (ob && ob.rejected > 0) {
+      return {
+        key: att.attemptId,
+        title: `${title} — answers`,
+        sub: `${ob.rejected} couldn’t be counted — ask your teacher`,
+        chip: "attention" as const,
+      };
+    }
+    const answered = countAnswered(att);
+    const pend = ob?.pendingAnswers ?? 0;
+    const allSent = pend === 0 && !ob?.submitPending;
+    return {
+      key: att.attemptId,
+      title: `${title} — answers`,
+      sub: allSent ? `All ${answered} sent` : `${pend} of ${answered} still to send`,
+      chip: allSent ? ("done" as const) : offline ? ("local" as const) : ("sending" as const),
+    };
+  });
+}
+
 export function SyncCenterContent({
-  s,
-  connectivity,
+  eng,
   onSendNow,
   showTitle = true,
 }: {
-  s: ExamSnapshot;
-  connectivity: Connectivity;
+  eng: EngineState;
   onSendNow: () => void;
   showTitle?: boolean;
 }) {
-  const pend = pendingExam(s);
-  const offline = connectivity === "offline";
+  const offline = !eng.online;
+  const rows = buildRows(eng);
+  const kb = Math.max(1, Math.round(eng.outbox.pendingBytes / 1024));
 
-  const examRow = s.submitted
-    ? {
-        title: `${examFx.subject} exam — answers`,
-        sub: pend > 0 ? `${pend} of ${TOTAL} still to send` : `All ${TOTAL} sent`,
-        chip: (pend === 0 ? "done" : !offline ? "sending" : "local") as RowChipKind,
-      }
-    : {
-        title: `${examFx.subject} exam`,
-        sub: inProgress(s)
-          ? "In progress — stays on this phone until you submit"
-          : "Not started",
-        // Not sent anywhere until submit — always calm amber.
-        chip: "local" as RowChipKind,
-      };
-
-  const extraRows = outboxExtras.map((x, i) => ({
-    title: x.label,
-    sub: i === 0 ? `Small update · ${x.size}` : `Becomes official at school · ${x.size}`,
-    chip: (s.extraSent >= i + 1 ? "done" : !offline ? "sending" : "local") as RowChipKind,
-  }));
+  // "just now" needs a clock that moves while the sheet is open.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <div>
       {showTitle ? <div style={{ fontSize: 16, fontWeight: 800 }}>Sync Center</div> : null}
       <div style={{ fontSize: 12, color: "var(--color-ink-subtle)", marginTop: 2 }}>
-        This phone · last sent to school: {s.lastSync}
+        This phone · last sent to school: {fmtLastSync(eng.outbox.lastSentMs, nowMs)}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 13 }}>
-        <SyncRow {...examRow} />
-        {extraRows.map((r) => (
-          <SyncRow key={r.title} {...r} />
-        ))}
+        {rows.length === 0 ? (
+          <div
+            style={{
+              border: "1.5px dashed var(--color-border)",
+              borderRadius: 12,
+              padding: "14px 12px",
+              fontSize: 12.5,
+              lineHeight: 1.5,
+              color: "var(--color-ink-subtle)",
+              textAlign: "center",
+            }}
+          >
+            Nothing waiting to send — your work saves on this phone first.
+          </div>
+        ) : (
+          rows.map((row) => (
+            <SyncRow key={row.key} title={row.title} sub={row.sub} chip={row.chip} />
+          ))
+        )}
       </div>
       <Button
         style={{ width: "100%", height: 50, marginTop: 14, fontSize: 15, fontWeight: 800 }}
@@ -124,11 +170,13 @@ export function SyncCenterContent({
           {copy.syncCenter.sendNowOffline}
         </div>
       ) : null}
-      <div
-        style={{ fontSize: 11, color: "var(--color-ink-subtle)", textAlign: "center", marginTop: 8 }}
-      >
-        {copy.syncCenter.dataCost(syncPayloadKb)}
-      </div>
+      {eng.outbox.pending > 0 ? (
+        <div
+          style={{ fontSize: 11, color: "var(--color-ink-subtle)", textAlign: "center", marginTop: 8 }}
+        >
+          {copy.syncCenter.dataCost(kb)}
+        </div>
+      ) : null}
     </div>
   );
 }

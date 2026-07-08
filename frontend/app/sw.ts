@@ -61,3 +61,27 @@ const serwist = new Serwist({
 });
 
 serwist.addEventListeners();
+
+/* Background Sync is a Chromium-only ENHANCEMENT (TECHSTACK §3) — the exam
+   outbox's real triggers are app-level. Where the API exists, the page
+   registers the "rl-outbox" tag; when it fires (connectivity returned) we
+   nudge any open client to drain. No client ⇒ no-op: the SW cannot
+   authenticate on its own (access tokens live in page memory only). */
+(
+  self as unknown as {
+    addEventListener(
+      type: "sync",
+      listener: (event: {
+        tag: string;
+        waitUntil(promise: Promise<unknown>): void;
+      }) => void,
+    ): void;
+  }
+).addEventListener("sync", (event) => {
+  if (event.tag !== "rl-outbox") return;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((clients) => {
+      for (const client of clients) client.postMessage({ type: "RL_OUTBOX_SYNC" });
+    }),
+  );
+});

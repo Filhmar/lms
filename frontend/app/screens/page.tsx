@@ -26,8 +26,8 @@ const GROUPS: {
   {
     title: "Phase II — Exams & sync",
     links: [
-      { href: "/exams", label: "Exam journey (interactive)", preview: true },
-      { href: "/sync", label: "Sync Center", preview: true },
+      { href: "/exams", label: "Exam journey (interactive)" },
+      { href: "/sync", label: "Sync Center" },
     ],
   },
   {

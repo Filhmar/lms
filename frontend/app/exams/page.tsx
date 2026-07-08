@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { RequireAuth } from "@/lib/session";
 import { ExamJourney } from "./journey";
 
 export const metadata: Metadata = {
@@ -8,5 +9,9 @@ export const metadata: Metadata = {
 };
 
 export default function ExamsPage() {
-  return <ExamJourney />;
+  return (
+    <RequireAuth>
+      <ExamJourney />
+    </RequireAuth>
+  );
 }

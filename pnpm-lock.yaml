@@ -114,6 +114,9 @@ importers:
       '@serwist/turbopack':
         specifier: 9.5.11
         version: 9.5.11(esbuild@0.28.1)(next@16.2.10(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(typescript@5.9.3)
+      idb:
+        specifier: ^8.0.3
+        version: 8.0.3
       next:
         specifier: ^16.2.0
         version: 16.2.10(@opentelemetry/api@1.9.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
