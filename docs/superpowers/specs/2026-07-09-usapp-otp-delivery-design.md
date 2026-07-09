@@ -22,6 +22,13 @@ push. If the number has no Usapp account it returns **`404 Recipient not found`*
 
 That 404 *is* the registration requirement. Usapp enforces it; LMS does not reimplement it.
 
+**Do not trust `docs/USAPP-API-DOCS.yaml` on this point.** That file is generated from
+`@ApiResponse` decorators, and `sendMessage` in Usapp's `tenant.controller.ts` declares only
+`201`/`400`/`401`/`403`/`429` — it never declares the `404`. The 404 is nonetheless real and
+reachable: `integration-service.service.ts:703` and `:713` both throw
+`NotFoundException('Recipient not found')`, once when the user-service lookup 404s and once
+when it resolves no user id. The published OpenAPI document is incomplete, not authoritative.
+
 Two consequences that shape the design:
 
 - **There is no phone-lookup endpoint** on the tenant API. The only way to learn whether a
