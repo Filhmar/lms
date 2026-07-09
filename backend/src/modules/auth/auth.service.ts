@@ -173,7 +173,7 @@ export class AuthService {
       expiresInSec: OTP_TTL_SEC,
     };
     // Dev convenience ONLY — never in staging/production.
-    if (cfg.NODE_ENV === "development" && cfg.SMS_DRIVER === "mock") {
+    if (cfg.NODE_ENV === "development" && cfg.OTP_DELIVERY_DRIVER === "mock") {
       response.devCode = code;
     }
     return response;

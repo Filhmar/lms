@@ -24,10 +24,16 @@ x-backend-env: &backend-env
   # (issuer id / verificationMethod / QR URL). Empty = dev default
   # (http://localhost:3000/verify); staging/production set the portal domain.
   VERIFY_PUBLIC_BASE: ${VERIFY_PUBLIC_BASE:-}
-  # Phone-OTP activation SMS: mock (logs codes) or http gateway (URL+key required).
-  SMS_DRIVER: ${SMS_DRIVER:-mock}
+  # Delivery channel for phone-OTP activation codes:
+  #   mock  = log the code (development only)
+  #   http  = generic SMS gateway (SMS_HTTP_URL + SMS_HTTP_API_KEY required)
+  #   usapp = Usapp tenant API (USAPP_BASE_URL + USAPP_API_KEY required)
+  OTP_DELIVERY_DRIVER: ${OTP_DELIVERY_DRIVER:-mock}
   SMS_HTTP_URL: ${SMS_HTTP_URL:-}
   SMS_HTTP_API_KEY: ${SMS_HTTP_API_KEY:-}
+  USAPP_BASE_URL: ${USAPP_BASE_URL:-}
+  USAPP_API_KEY: ${USAPP_API_KEY:-}
+  USAPP_TIMEOUT_MS: ${USAPP_TIMEOUT_MS:-5000}
 
 services:
   postgres:

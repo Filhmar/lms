@@ -19,9 +19,12 @@ const MANAGED_ENV = [
   "STORAGE_DIR",
   "METRICS_PORT",
   "VERIFY_PUBLIC_BASE",
-  "SMS_DRIVER",
+  "OTP_DELIVERY_DRIVER",
   "SMS_HTTP_URL",
   "SMS_HTTP_API_KEY",
+  "USAPP_BASE_URL",
+  "USAPP_API_KEY",
+  "USAPP_TIMEOUT_MS",
 ] as const;
 
 const BASE_ENV: Record<string, string> = {
@@ -52,23 +55,47 @@ describe("loadConfig", () => {
     }
   });
 
-  it("rejects SMS_DRIVER=http without SMS_HTTP_URL", async () => {
-    process.env.SMS_DRIVER = "http";
+  it("rejects OTP_DELIVERY_DRIVER=http without SMS_HTTP_URL", async () => {
+    process.env.OTP_DELIVERY_DRIVER = "http";
     process.env.SMS_HTTP_URL = "";
     process.env.SMS_HTTP_API_KEY = "a-key";
 
     const { loadConfig } = await import("./config.js");
 
-    expect(() => loadConfig()).toThrow(/SMS_HTTP_URL: required when SMS_DRIVER=http/);
+    expect(() => loadConfig()).toThrow(
+      /SMS_HTTP_URL: required when OTP_DELIVERY_DRIVER=http/,
+    );
   });
 
-  it("rejects SMS_DRIVER=http without SMS_HTTP_API_KEY", async () => {
-    process.env.SMS_DRIVER = "http";
-    process.env.SMS_HTTP_URL = "https://sms.example/send";
-    process.env.SMS_HTTP_API_KEY = "";
+  it("rejects OTP_DELIVERY_DRIVER=usapp without USAPP_BASE_URL", async () => {
+    process.env.OTP_DELIVERY_DRIVER = "usapp";
+    process.env.USAPP_BASE_URL = "";
+    process.env.USAPP_API_KEY = "a-raw-key";
 
     const { loadConfig } = await import("./config.js");
 
-    expect(() => loadConfig()).toThrow(/SMS_HTTP_API_KEY: required when SMS_DRIVER=http/);
+    expect(() => loadConfig()).toThrow(
+      /USAPP_BASE_URL: required when OTP_DELIVERY_DRIVER=usapp/,
+    );
+  });
+
+  it("rejects OTP_DELIVERY_DRIVER=usapp without USAPP_API_KEY", async () => {
+    process.env.OTP_DELIVERY_DRIVER = "usapp";
+    process.env.USAPP_BASE_URL = "https://usapp.example.ph";
+    process.env.USAPP_API_KEY = "";
+
+    const { loadConfig } = await import("./config.js");
+
+    expect(() => loadConfig()).toThrow(
+      /USAPP_API_KEY: required when OTP_DELIVERY_DRIVER=usapp/,
+    );
+  });
+
+  it("rejects an unknown driver name", async () => {
+    process.env.OTP_DELIVERY_DRIVER = "twilio";
+
+    const { loadConfig } = await import("./config.js");
+
+    expect(() => loadConfig()).toThrow(/OTP_DELIVERY_DRIVER/);
   });
 });
