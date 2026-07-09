@@ -37,6 +37,10 @@ const EnvSchema = z
     SMS_DRIVER: z.enum(["mock", "http"]).default("mock"),
     SMS_HTTP_URL: optionalEnv(z.url().optional()),
     SMS_HTTP_API_KEY: optionalEnv(z.string().min(1).optional()),
+    /** Usapp tenant API — base origin, raw API key, and per-request timeout. */
+    USAPP_BASE_URL: optionalEnv(z.url().optional()),
+    USAPP_API_KEY: optionalEnv(z.string().min(1).optional()),
+    USAPP_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   })
   .superRefine((env, ctx) => {
     if (env.SMS_DRIVER === "http") {
