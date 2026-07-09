@@ -21,7 +21,10 @@ import type {
 import * as argon2 from "argon2";
 import { ConfigService } from "../../platform/config";
 import { RedisService } from "../../platform/redis.service";
-import { SMS_PORT, type SmsPort } from "../../platform/sms/sms.port";
+import {
+  OTP_DELIVERY_PORT,
+  type OtpDeliveryPort,
+} from "../../platform/otp-delivery/otp-delivery.port";
 import { AuthRepository } from "./auth.repository";
 import { JwksService } from "./jwks.service";
 
@@ -55,7 +58,7 @@ export class AuthService {
     private readonly jwksService: JwksService,
     private readonly configService: ConfigService,
     private readonly redis: RedisService,
-    @Inject(SMS_PORT) private readonly sms: SmsPort,
+    @Inject(OTP_DELIVERY_PORT) private readonly delivery: OtpDeliveryPort,
   ) {}
 
   async login(email: string, password: string): Promise<LoginResponse> {
@@ -159,7 +162,7 @@ export class AuthService {
       codeHash: this.hashToken(code),
       expiresAt: new Date(Date.now() + OTP_TTL_SEC * 1000),
     });
-    await this.sms.send(
+    await this.delivery.send(
       user.phone,
       `Resilient-Learn code: ${code} — use this to set your password. Valid 10 minutes.`,
     );
