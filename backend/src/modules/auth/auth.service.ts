@@ -1,12 +1,15 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import {
+  BadGatewayException,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   HttpException,
   Inject,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
@@ -22,7 +25,10 @@ import * as argon2 from "argon2";
 import { ConfigService } from "../../platform/config";
 import { RedisService } from "../../platform/redis.service";
 import {
+  DeliveryRateLimitedError,
+  DeliveryUnavailableError,
   OTP_DELIVERY_PORT,
+  RecipientNotRegisteredError,
   type OtpDeliveryPort,
 } from "../../platform/otp-delivery/otp-delivery.port";
 import { AuthRepository } from "./auth.repository";
@@ -38,6 +44,10 @@ const RATE_LIMIT_PER_IP = 8;
 const CANNOT_ACTIVATE = "We can't activate this account. Ask your school admin.";
 const TOO_MANY_CODES =
   "Too many codes requested — try again in about an hour. Your account is safe.";
+const NOT_ON_USAPP =
+  "That number isn't on Usapp yet. Install Usapp, register this number, then request your code.";
+const DELIVERY_BUSY = "We're sending a lot of codes right now. Try again in a few minutes.";
+const DELIVERY_FAILED = "We couldn't send your code right now — try again in a few minutes.";
 
 /**
  * Stateless auth (TECHSTACK §5.5): RS256 access tokens (15 min) verified via
@@ -45,8 +55,8 @@ const TOO_MANY_CODES =
  * single stateful auth artifact. Never a session table.
  *
  * Activation is phone-OTP (Usapp-style): admins create accounts with a phone;
- * the owner proves phone possession with a 6-digit SMS code and sets their
- * own password (auto-login on success).
+ * the owner proves phone possession with a 6-digit code delivered to their
+ * phone and sets their own password (auto-login on success).
  */
 @Injectable()
 export class AuthService {
@@ -153,24 +163,38 @@ export class AuthService {
     }
     await this.enforceRateLimit(`otp:rl:user:${user.id}`, RATE_LIMIT_PER_USER);
 
+    const cfg = this.configService.config;
     const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
-    // Supersede: only the newest code is ever valid.
-    await this.repo.consumeActivationOtps(user.id);
-    await this.repo.createActivationOtp({
+
+    // Deliver BEFORE persisting. A failed send must never supersede a code the
+    // owner is still holding, nor store one that was never delivered. The
+    // inverse risk — delivered, then the write fails — leaves the old codes
+    // valid and is the rarer half, since the network call is what breaks.
+    try {
+      await this.delivery.send(
+        user.phone,
+        `Resilient-Learn code: ${code} — use this to set your password. Valid 10 minutes.`,
+      );
+    } catch (err) {
+      if (err instanceof RecipientNotRegisteredError) throw new ConflictException(NOT_ON_USAPP);
+      if (err instanceof DeliveryRateLimitedError) {
+        throw new ServiceUnavailableException(DELIVERY_BUSY);
+      }
+      if (err instanceof DeliveryUnavailableError) throw new BadGatewayException(DELIVERY_FAILED);
+      throw err;
+    }
+
+    await this.repo.replaceActivationOtp({
       userId: user.id,
       phone: user.phone,
       codeHash: this.hashToken(code),
       expiresAt: new Date(Date.now() + OTP_TTL_SEC * 1000),
     });
-    await this.delivery.send(
-      user.phone,
-      `Resilient-Learn code: ${code} — use this to set your password. Valid 10 minutes.`,
-    );
 
-    const cfg = this.configService.config;
     const response: ActivationRequestResponse = {
       maskedPhone: maskPhone(user.phone),
       expiresInSec: OTP_TTL_SEC,
+      channel: cfg.OTP_DELIVERY_DRIVER === "usapp" ? "usapp" : "sms",
     };
     // Dev convenience ONLY — never in staging/production.
     if (cfg.NODE_ENV === "development" && cfg.OTP_DELIVERY_DRIVER === "mock") {
@@ -210,7 +234,7 @@ export class AuthService {
       expected.length === presented.length && timingSafeEqual(expected, presented);
     if (!matches) {
       await this.repo.incrementOtpAttempts(otp.id);
-      throw new BadRequestException("That code didn't match. Check the SMS and try again.");
+      throw new BadRequestException("That code didn't match. Check the code and try again.");
     }
 
     const passwordHash = await argon2.hash(input.newPassword, { type: argon2.argon2id });

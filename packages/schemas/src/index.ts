@@ -244,14 +244,20 @@ export const ActivationRequestSchema = z.object({
 });
 export type ActivationRequest = z.infer<typeof ActivationRequestSchema>;
 
+/** The channel the activation code went out over — decides which copy to show. */
+export const OtpChannelSchema = z.enum(["usapp", "sms"]);
+export type OtpChannel = z.infer<typeof OtpChannelSchema>;
+
 export const ActivationRequestResponseSchema = z.object({
   /** e.g. +63••••••1234 — never the full number. */
   maskedPhone: z.string(),
   expiresInSec: z.number().int().positive(),
+  /** Where the code was delivered: the Usapp app, or an SMS. */
+  channel: OtpChannelSchema,
   /**
-   * Development convenience ONLY (SMS_DRIVER=mock + NODE_ENV=development):
-   * the code is surfaced so flows can be exercised without a real SMS
-   * provider. Absent in staging/production.
+   * Development convenience ONLY (OTP_DELIVERY_DRIVER=mock + NODE_ENV=development):
+   * the code is surfaced so flows can be exercised without a real delivery
+   * network. Absent in staging/production.
    */
   devCode: z.string().optional(),
 });
