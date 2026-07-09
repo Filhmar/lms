@@ -12,7 +12,10 @@ const CODE = "042317";
 const CODE_MESSAGE = `Resilient-Learn code: ${CODE} — use this to set your password. Valid 10 minutes.`;
 
 /** Captures everything the driver logs so we can assert the code never appears. */
-function makeDriver(baseUrl = "https://usapp.example.ph"): {
+function makeDriver(
+  baseUrl = "https://usapp.example.ph",
+  timeoutMs = 5000,
+): {
   driver: UsappDriver;
   logged: string[];
 } {
@@ -20,7 +23,7 @@ function makeDriver(baseUrl = "https://usapp.example.ph"): {
     config: {
       USAPP_BASE_URL: baseUrl,
       USAPP_API_KEY: "a-raw-key",
-      USAPP_TIMEOUT_MS: 5000,
+      USAPP_TIMEOUT_MS: timeoutMs,
     },
   } as unknown as ConfigService;
 
@@ -133,6 +136,28 @@ describe("UsappDriver", () => {
     const fetchMock = stubFetch(500);
     const { driver } = makeDriver();
     await driver.send(PHONE, CODE_MESSAGE).catch(() => {});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes an AbortSignal to fetch", async () => {
+    const fetchMock = stubFetch(201);
+    const { driver } = makeDriver();
+
+    await driver.send(PHONE, CODE_MESSAGE);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("threads the timeout value from config to AbortSignal.timeout", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    const fetchMock = stubFetch(201);
+    const { driver } = makeDriver("https://usapp.example.ph", 1234);
+
+    await driver.send(PHONE, CODE_MESSAGE);
+
+    expect(timeoutSpy).toHaveBeenCalledWith(1234);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
