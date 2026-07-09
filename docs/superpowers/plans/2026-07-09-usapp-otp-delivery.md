@@ -398,17 +398,23 @@ import type { OtpDeliveryPort } from "./otp-delivery.port";
  * Dev/demo driver: logs the message instead of sending it. Never throws —
  * a missing delivery must not block local flows (the code is also surfaced as
  * `devCode` when NODE_ENV=development). Logging the code here is the point;
- * every other driver must keep it out of the log.
+ * every other driver must keep it out of the log. The phone is masked all the
+ * same — that rule has no exemption.
  */
 @Injectable()
 export class MockDriver implements OtpDeliveryPort {
   private readonly logger = new Logger("MockOtpDelivery");
 
   async send(phone: string, message: string): Promise<void> {
-    this.logger.log(`OTP → ${phone}: ${message}`);
+    this.logger.log(`OTP → ${maskPhone(phone)}: ${message}`);
   }
 }
 ```
+
+Import `maskPhone` from `@rl/schemas`, as `http-sms.driver.ts` does. Cover it with a
+`mock.driver.spec.ts` asserting *both* halves of the rule: the masked phone is present
+and the raw number is absent, **and** the OTP code is still logged. A test that checks
+only the mask would pass if someone later stopped logging the code at all.
 
 - [ ] **Step 5: Move the HTTP SMS driver onto the new error type**
 
@@ -546,7 +552,7 @@ Then update the single call site (currently line 162) from `this.sms.send(` to `
 cd backend && pnpm test && pnpm typecheck
 ```
 
-Expected: PASS — `5 passed` across `config.spec.ts` and `http-sms.driver.spec.ts`; `tsc --noEmit` exits 0.
+Expected: PASS — `6 passed` across `config.spec.ts`, `mock.driver.spec.ts`, and `http-sms.driver.spec.ts`; `tsc --noEmit` exits 0.
 
 - [ ] **Step 10: Verify no stale references survive**
 
@@ -841,7 +847,7 @@ export class UsappDriver implements OtpDeliveryPort {
 cd backend && pnpm test && pnpm typecheck
 ```
 
-Expected: PASS — `18 passed` across three spec files (2 config + 3 http + 13 usapp); `tsc --noEmit` exits 0.
+Expected: PASS — `19 passed` across four spec files (2 config + 1 mock + 3 http + 13 usapp); `tsc --noEmit` exits 0.
 
 - [ ] **Step 6: Commit**
 
@@ -1128,7 +1134,7 @@ with:
 cd backend && pnpm test && pnpm typecheck && cd .. && git grep -n 'SMS_DRIVER' -- backend docker-compose.yml CLAUDE.md | wc -l
 ```
 
-Expected: `20 passed` (config grows from 2 tests to 4); `tsc --noEmit` exits 0; the `git grep | wc -l` prints `0`.
+Expected: `21 passed` (config grows from 2 tests to 4); `tsc --noEmit` exits 0; the `git grep | wc -l` prints `0`.
 
 - [ ] **Step 10: Verify the container config still resolves**
 
@@ -1482,7 +1488,7 @@ Also update the class doc-comment on lines 44–46, replacing `a 6-digit SMS cod
 cd backend && pnpm test && pnpm typecheck && cd .. && pnpm --filter @rl/schemas typecheck
 ```
 
-Expected: PASS — `26 passed` across four spec files (4 config + 3 http + 13 usapp + 6 auth); both typechecks exit 0.
+Expected: PASS — `27 passed` across five spec files (4 config + 1 mock + 3 http + 13 usapp + 6 auth); both typechecks exit 0.
 
 - [ ] **Step 8: Commit**
 
@@ -1656,7 +1662,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## Done when
 
-- `pnpm test` is green from the repo root (26 tests across four backend spec files).
+- `pnpm test` is green from the repo root (27 tests across five backend spec files).
 - `pnpm typecheck` is green across every workspace.
 - `git grep -n 'SMS_DRIVER\|SmsPort\|SMS_PORT'` returns nothing outside the spec and this plan.
 - With `OTP_DELIVERY_DRIVER=usapp` and an unreachable base URL, requesting a code twice in a row both fails calmly *and* leaves any previously issued code usable.
