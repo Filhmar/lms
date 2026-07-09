@@ -976,7 +976,15 @@ Then replace the whole `.superRefine((env, ctx) => {...})` block with:
 
 ```ts
   .superRefine((env, ctx) => {
-    const require = (key: "SMS_HTTP_URL" | "SMS_HTTP_API_KEY" | "USAPP_BASE_URL" | "USAPP_API_KEY") => {
+    type DriverCredential =
+      | "SMS_HTTP_URL"
+      | "SMS_HTTP_API_KEY"
+      | "USAPP_BASE_URL"
+      | "USAPP_API_KEY";
+
+    // Not named `require` — this file compiles to CommonJS, where that shadows
+    // the module loader.
+    const demand = (key: DriverCredential) => {
       if (!env[key]) {
         ctx.addIssue({
           code: "custom",
@@ -987,12 +995,12 @@ Then replace the whole `.superRefine((env, ctx) => {...})` block with:
     };
 
     if (env.OTP_DELIVERY_DRIVER === "http") {
-      require("SMS_HTTP_URL");
-      require("SMS_HTTP_API_KEY");
+      demand("SMS_HTTP_URL");
+      demand("SMS_HTTP_API_KEY");
     }
     if (env.OTP_DELIVERY_DRIVER === "usapp") {
-      require("USAPP_BASE_URL");
-      require("USAPP_API_KEY");
+      demand("USAPP_BASE_URL");
+      demand("USAPP_API_KEY");
     }
   });
 ```
