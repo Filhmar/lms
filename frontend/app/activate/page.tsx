@@ -105,7 +105,13 @@ export default function ActivatePage() {
   const codeOk = /^\d{6}$/.test(code);
 
   // `sms` until the request answers; step 1 never shows channel-specific copy.
-  const t = challenge ? activation[challenge.channel] : activation.sms;
+  // The API contract says `channel` is "usapp" | "sms", but the frontend and
+  // backend deploy independently: a backend that ships a new driver first must
+  // not crash this screen. Fall back to the neutral wording.
+  const t =
+    challenge && challenge.channel in activation
+      ? activation[challenge.channel]
+      : activation.sms;
 
   const repeatError = !attempted
     ? undefined
