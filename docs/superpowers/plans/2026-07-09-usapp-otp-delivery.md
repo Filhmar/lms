@@ -1488,7 +1488,7 @@ Also update the class doc-comment on lines 44–46, replacing `a 6-digit SMS cod
 cd backend && pnpm test && pnpm typecheck && cd .. && pnpm --filter @rl/schemas typecheck
 ```
 
-Expected: PASS — `29 passed` across five spec files (4 config + 1 mock + 3 http + 15 usapp + 6 auth); both typechecks exit 0.
+Expected: PASS — `31 passed` across five spec files (6 config + 1 mock + 3 http + 15 usapp + 6 auth); both typechecks exit 0.
 
 - [ ] **Step 8: Commit**
 
@@ -1662,7 +1662,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## Done when
 
-- `pnpm test` is green from the repo root (29 tests across five backend spec files).
+- `pnpm test` is green from the repo root (31 tests across five backend spec files).
 - `pnpm typecheck` is green across every workspace.
 - `git grep -n 'SMS_DRIVER\|SmsPort\|SMS_PORT'` returns nothing outside the spec and this plan.
 - With `OTP_DELIVERY_DRIVER=usapp` and an unreachable base URL, requesting a code twice in a row both fails calmly *and* leaves any previously issued code usable.
