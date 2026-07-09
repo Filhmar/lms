@@ -1,0 +1,2353 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1/admin/login": {
+      "post": {
+        "description": "Authenticates with username and password. If mustChangePassword is true, returns a passwordChangeToken instead of normal tokens.",
+        "operationId": "AdminAuthController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful or password change required"
+          },
+          "401": {
+            "description": "Invalid credentials"
+          },
+          "429": {
+            "description": "Too many login attempts"
+          }
+        },
+        "summary": "Admin login",
+        "tags": [
+          "Admin Auth"
+        ]
+      }
+    },
+    "/api/v1/admin/logout": {
+      "post": {
+        "description": "Revokes the provided refresh token and its session.",
+        "operationId": "AdminAuthController_logout",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminLogoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Logged out successfully"
+          }
+        },
+        "summary": "Admin logout",
+        "tags": [
+          "Admin Auth"
+        ]
+      }
+    },
+    "/api/v1/admin/refresh-token": {
+      "post": {
+        "description": "Exchanges a valid refresh token for a new access + refresh token pair. The old refresh token is immediately revoked.",
+        "operationId": "AdminAuthController_refreshToken",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminRefreshTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New token pair issued"
+          },
+          "401": {
+            "description": "Invalid or already-used refresh token"
+          }
+        },
+        "summary": "Rotate admin tokens",
+        "tags": [
+          "Admin Auth"
+        ]
+      }
+    },
+    "/api/v1/admin/change-password": {
+      "post": {
+        "description": "Exchanges a passwordChangeToken (from mustChangePassword login flow) for a new password. The new password must differ from the current and the seeded password.",
+        "operationId": "AdminAuthController_changePassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password changed and new token pair issued"
+          },
+          "401": {
+            "description": "Invalid or expired passwordChangeToken"
+          },
+          "403": {
+            "description": "Password reuse not allowed"
+          }
+        },
+        "summary": "Change admin password",
+        "tags": [
+          "Admin Auth"
+        ]
+      }
+    },
+    "/api/v1/admin/me": {
+      "get": {
+        "description": "Returns the profile of the admin identified by the bearer token.",
+        "operationId": "AdminController_getMe",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Current admin profile"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Get the current admin profile",
+        "tags": [
+          "Admin",
+          "Admin — Admins"
+        ]
+      }
+    },
+    "/api/v1/admins": {
+      "get": {
+        "description": "SUPERADMIN only. Returns all admin accounts without password hashes.",
+        "operationId": "AdminController_listAdmins",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of admin accounts"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "403": {
+            "description": "Requires SUPERADMIN role"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "List all admin accounts",
+        "tags": [
+          "Admin",
+          "Admin — Admins"
+        ]
+      },
+      "post": {
+        "description": "SUPERADMIN only. Creates an ADMIN-role account. The new admin must change their password on first login.",
+        "operationId": "AdminController_createAdmin",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdminDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Admin created successfully"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "403": {
+            "description": "Requires SUPERADMIN role, or username/email already in use"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Create a new admin account",
+        "tags": [
+          "Admin",
+          "Admin — Admins"
+        ]
+      }
+    },
+    "/api/v1/admins/{id}/disable": {
+      "patch": {
+        "description": "SUPERADMIN only. Sets isActive=false and immediately revokes all active sessions for the target admin.",
+        "operationId": "AdminController_disableAdmin",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Admin UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Admin disabled and sessions revoked"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "403": {
+            "description": "Requires SUPERADMIN role, or target is SUPERADMIN/self"
+          },
+          "404": {
+            "description": "Admin not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Disable an admin account",
+        "tags": [
+          "Admin",
+          "Admin — Admins"
+        ]
+      }
+    },
+    "/api/v1/admins/{id}/enable": {
+      "patch": {
+        "description": "SUPERADMIN only. Sets isActive=true for the target admin.",
+        "operationId": "AdminController_enableAdmin",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Admin UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Admin enabled"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "403": {
+            "description": "Requires SUPERADMIN role, or target is SUPERADMIN"
+          },
+          "404": {
+            "description": "Admin not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Enable an admin account",
+        "tags": [
+          "Admin",
+          "Admin — Admins"
+        ]
+      }
+    },
+    "/api/v1/tenants": {
+      "post": {
+        "description": "Registers a new tenant with a unique name, plan tier, and mandatory IP allowlist. Defaults to the FREE plan if none is specified.",
+        "operationId": "AdminController_createTenant",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTenantDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Tenant created successfully"
+          },
+          "400": {
+            "description": "Validation error — missing or invalid fields"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "409": {
+            "description": "A tenant with this name already exists"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Create a new tenant",
+        "tags": [
+          "Admin",
+          "Admin — Tenants"
+        ]
+      },
+      "get": {
+        "operationId": "AdminController_listTenants",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of all tenants"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "List all tenants",
+        "tags": [
+          "Admin",
+          "Admin — Tenants"
+        ]
+      }
+    },
+    "/api/v1/tenants/{id}": {
+      "get": {
+        "operationId": "AdminController_getTenant",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tenant details retrieved"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Get a tenant by ID",
+        "tags": [
+          "Admin",
+          "Admin — Tenants"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminController_updateTenant",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTenantDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tenant updated successfully"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Update a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Tenants"
+        ]
+      },
+      "delete": {
+        "description": "Permanently deletes a tenant and all associated data.",
+        "operationId": "AdminController_deleteTenant",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tenant deleted successfully"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Delete a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Tenants"
+        ]
+      }
+    },
+    "/api/v1/tenants/{id}/plan": {
+      "patch": {
+        "operationId": "AdminController_changePlan",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTenantPlanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Plan updated successfully"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Change a tenant plan",
+        "tags": [
+          "Admin",
+          "Admin — Tenants"
+        ]
+      }
+    },
+    "/api/v1/tenants/{id}/owner": {
+      "patch": {
+        "description": "SUPERADMIN only.",
+        "operationId": "AdminController_reassignTenantOwner",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReassignTenantOwnerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tenant owner reassigned"
+          },
+          "403": {
+            "description": "Requires SUPERADMIN role"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Reassign a tenant to another admin",
+        "tags": [
+          "Admin",
+          "Admin — Tenants"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/api-keys": {
+      "post": {
+        "description": "The raw key is returned only once — store it securely.",
+        "operationId": "AdminController_generateApiKey",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "API key generated — raw key included in response (one-time only)"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Generate an API key for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — API Keys"
+        ]
+      },
+      "get": {
+        "operationId": "AdminController_listApiKeys",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of API keys"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "List API keys for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — API Keys"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/api-keys/{keyId}": {
+      "delete": {
+        "operationId": "AdminController_revokeApiKey",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "keyId",
+            "required": true,
+            "in": "path",
+            "description": "API key UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API key revoked successfully"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "API key not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Revoke an API key",
+        "tags": [
+          "Admin",
+          "Admin — API Keys"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/usage": {
+      "get": {
+        "operationId": "AdminController_getTenantUsage",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "description": "Usage period in YYYY-MM format (defaults to current month)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage data retrieved"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Get usage stats for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Usage"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/usage/history": {
+      "get": {
+        "operationId": "AdminController_getTenantUsageHistory",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage history retrieved"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Get usage history (all periods) for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Usage"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/usage/daily": {
+      "get": {
+        "operationId": "AdminController_getTenantUsageDaily",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "description": "YYYY-MM (defaults to the current month in the business timezone)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Zero-filled daily counts for the month"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Daily message activity for a tenant in a given month",
+        "tags": [
+          "Admin",
+          "Admin — Usage"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/templates": {
+      "get": {
+        "operationId": "AdminController_listTenantTemplates",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of templates"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "List message templates for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Templates"
+        ]
+      },
+      "post": {
+        "description": "Admin-created templates are auto-approved.",
+        "operationId": "AdminController_createTenantTemplate",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Template created (approved)"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Create a message template for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Templates"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/templates/{id}/approve": {
+      "patch": {
+        "description": "Approved templates can be used in send and batch operations.",
+        "operationId": "AdminController_approveTemplate",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Template UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template approved successfully"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Template not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Approve a message template",
+        "tags": [
+          "Admin",
+          "Admin — Templates"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/webhook": {
+      "get": {
+        "operationId": "AdminController_getTenantWebhookConfig",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook config retrieved"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Get webhook config for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Webhooks"
+        ]
+      },
+      "put": {
+        "description": "USAPp signs deliveries with HMAC-SHA256 using the provided secret.",
+        "operationId": "AdminController_setTenantWebhookConfig",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetWebhookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook config updated successfully"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Set webhook config for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Webhooks"
+        ]
+      },
+      "delete": {
+        "operationId": "AdminController_removeTenantWebhookConfig",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook config removed successfully"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Remove webhook config for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Webhooks"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/webhook-events": {
+      "get": {
+        "operationId": "AdminController_getTenantWebhookEvents",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "skip",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "take",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of webhook events"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "List webhook events for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Webhooks"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/audit-log": {
+      "get": {
+        "operationId": "AdminController_getTenantAuditLog",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "skip",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "take",
+            "required": false,
+            "in": "query",
+            "description": "1–200, default 10",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resourceType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ip",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Matches resource ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "ISO date (inclusive)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "ISO date (inclusive)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of audit log entries"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "404": {
+            "description": "Tenant not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "List audit logs for a tenant",
+        "tags": [
+          "Admin",
+          "Admin — Audit"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenantId}/audit-log/facets": {
+      "get": {
+        "operationId": "AdminController_getTenantAuditFacets",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "description": "Tenant UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit filter options"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Distinct actions + resource types for a tenant (filter options)",
+        "tags": [
+          "Admin",
+          "Admin — Audit"
+        ]
+      }
+    },
+    "/api/v1/dsar": {
+      "get": {
+        "description": "Deadline-ordered queue. Filter by status and days-to-deadline.",
+        "operationId": "AdminController_listDsar",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dueWithinDays",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "skip",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "take",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of DSAR requests"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "403": {
+            "description": "Requires SUPERADMIN role"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "List DSAR requests",
+        "tags": [
+          "Admin",
+          "Admin — DSAR"
+        ]
+      }
+    },
+    "/api/v1/dsar/{id}": {
+      "get": {
+        "operationId": "AdminController_getDsar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "DSAR request UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DSAR request details"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "403": {
+            "description": "Requires SUPERADMIN role"
+          },
+          "404": {
+            "description": "DSAR request not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Get a DSAR request by ID",
+        "tags": [
+          "Admin",
+          "Admin — DSAR"
+        ]
+      },
+      "patch": {
+        "description": "Change status, add internal notes, or record an extension. Auto-stamps acknowledged/resolved timestamps.",
+        "operationId": "AdminController_updateDsar",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "DSAR request UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDsarDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DSAR request updated"
+          },
+          "401": {
+            "description": "Missing or invalid admin JWT"
+          },
+          "403": {
+            "description": "Requires SUPERADMIN role"
+          },
+          "404": {
+            "description": "DSAR request not found"
+          }
+        },
+        "security": [
+          {
+            "admin-jwt": []
+          }
+        ],
+        "summary": "Update a DSAR request",
+        "tags": [
+          "Admin",
+          "Admin — DSAR"
+        ]
+      }
+    },
+    "/api/v1/usage": {
+      "get": {
+        "description": "Returns usage statistics for the authenticated tenant. Requires the `usage:read` scope.",
+        "operationId": "TenantController_getMyUsage",
+        "parameters": [
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "description": "Usage period in YYYY-MM format (defaults to current month)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage data retrieved"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "IP not in allowlist or missing `usage:read` scope"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Get my usage stats",
+        "tags": [
+          "Tenant",
+          "Usage"
+        ]
+      }
+    },
+    "/api/v1/messages/send": {
+      "post": {
+        "description": "Sends an SMS to a recipient. Supports direct content or template-based messages with `{{variable}}` substitution.",
+        "operationId": "TenantController_sendMessage",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendTenantMessageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Message sent successfully"
+          },
+          "400": {
+            "description": "Neither content nor valid templateId provided"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "IP not in allowlist or missing `messages:send` scope"
+          },
+          "429": {
+            "description": "Rate limit exceeded or monthly quota exhausted"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Send a message",
+        "tags": [
+          "Tenant",
+          "Messages"
+        ]
+      }
+    },
+    "/api/v1/templates": {
+      "post": {
+        "description": "New templates require admin approval before use.",
+        "operationId": "TenantController_createTemplate",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Template created successfully"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "IP not in allowlist or missing `templates:manage` scope"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Create a message template",
+        "tags": [
+          "Tenant",
+          "Templates"
+        ]
+      },
+      "get": {
+        "operationId": "TenantController_listTemplates",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "List of templates"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "IP not in allowlist or missing `templates:manage` scope"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "List message templates",
+        "tags": [
+          "Tenant",
+          "Templates"
+        ]
+      }
+    },
+    "/api/v1/templates/{id}": {
+      "get": {
+        "operationId": "TenantController_getTemplate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Template UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template details retrieved"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "IP not in allowlist or missing `templates:manage` scope"
+          },
+          "404": {
+            "description": "Template not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Get a message template by ID",
+        "tags": [
+          "Tenant",
+          "Templates"
+        ]
+      },
+      "patch": {
+        "operationId": "TenantController_updateTemplate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Template UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Template updated successfully"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "IP not in allowlist or missing `templates:manage` scope"
+          },
+          "404": {
+            "description": "Template not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Update a message template",
+        "tags": [
+          "Tenant",
+          "Templates"
+        ]
+      },
+      "delete": {
+        "operationId": "TenantController_deleteTemplate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Template UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template deleted successfully"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "IP not in allowlist or missing `templates:manage` scope"
+          },
+          "404": {
+            "description": "Template not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Delete a message template",
+        "tags": [
+          "Tenant",
+          "Templates"
+        ]
+      }
+    },
+    "/api/v1/messages/batch": {
+      "post": {
+        "description": "Sends a message to up to 500 recipients in a single request.",
+        "operationId": "TenantController_createBatch",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBatchDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Batch created and processing started"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "IP not in allowlist or missing `batch:send` scope"
+          },
+          "429": {
+            "description": "Rate limit exceeded or insufficient quota"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Create a batch message",
+        "tags": [
+          "Tenant",
+          "Batches"
+        ]
+      }
+    },
+    "/api/v1/messages/batch/{batchId}": {
+      "get": {
+        "operationId": "TenantController_getBatch",
+        "parameters": [
+          {
+            "name": "batchId",
+            "required": true,
+            "in": "path",
+            "description": "Batch UUID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Batch status retrieved"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "IP not in allowlist or missing `messages:read` scope"
+          },
+          "404": {
+            "description": "Batch not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Get batch status",
+        "tags": [
+          "Tenant",
+          "Batches"
+        ]
+      }
+    },
+    "/api/v1/messages/batch/{batchId}/recipients": {
+      "get": {
+        "operationId": "TenantController_getBatchRecipients",
+        "parameters": [
+          {
+            "name": "batchId",
+            "required": true,
+            "in": "path",
+            "description": "Batch UUID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "skip",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "take",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of batch recipients with delivery status"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "403": {
+            "description": "IP not in allowlist or missing `messages:read` scope"
+          },
+          "404": {
+            "description": "Batch not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Get batch recipients",
+        "tags": [
+          "Tenant",
+          "Batches"
+        ]
+      }
+    },
+    "/api/v1/webhook": {
+      "get": {
+        "operationId": "TenantController_getMyWebhookConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Webhook config retrieved"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "Get my webhook config",
+        "tags": [
+          "Tenant",
+          "Webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhook-events": {
+      "get": {
+        "operationId": "TenantController_getMyWebhookEvents",
+        "parameters": [
+          {
+            "name": "skip",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "take",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of webhook events"
+          },
+          "401": {
+            "description": "Missing or invalid API key"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ],
+        "summary": "List my webhook events",
+        "tags": [
+          "Tenant",
+          "Webhooks"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "USAPp Integration API",
+    "description": "SaaS integration API for external applications to send messages through USAPp",
+    "version": "1.0",
+    "contact": {
+
+    }
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "api-key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      },
+      "admin-jwt": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "AdminLoginDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 100,
+            "example": "superadmin"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "AdminLogoutDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "AdminRefreshTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "AdminChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "passwordChangeToken": {
+            "type": "string",
+            "description": "Short-lived token returned when mustChangePassword is true"
+          },
+          "newPassword": {
+            "type": "string",
+            "minLength": 12
+          }
+        },
+        "required": [
+          "passwordChangeToken",
+          "newPassword"
+        ]
+      },
+      "CreateAdminDto": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 100,
+            "example": "admin_ops"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "admin@example.com"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12
+          }
+        },
+        "required": [
+          "username",
+          "email",
+          "password"
+        ]
+      },
+      "CreateTenantDto": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "enum": [
+              "INTERNAL",
+              "FREE",
+              "STARTER",
+              "BUSINESS"
+            ],
+            "type": "string",
+            "description": "Plan tier — defaults to FREE if not specified"
+          },
+          "ipAllowlist": {
+            "minItems": 1,
+            "example": [
+              "192.168.1.0/24",
+              "10.0.0.1"
+            ],
+            "description": "Mandatory IP allowlist — at least one IPv4 address or CIDR",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(\\d{1,3}\\.){3}\\d{1,3}(\\/\\d{1,2})?$"
+            }
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100,
+            "pattern": "^[a-zA-Z0-9_\\-\\s]+$"
+          },
+          "displayName": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "ipAllowlist",
+          "name"
+        ]
+      },
+      "UpdateTenantDto": {
+        "type": "object",
+        "properties": {
+          "ipAllowlist": {
+            "minItems": 1,
+            "example": [
+              "192.168.1.0/24",
+              "10.0.0.1"
+            ],
+            "description": "IP allowlist — cannot be empty if provided",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(\\d{1,3}\\.){3}\\d{1,3}(\\/\\d{1,2})?$"
+            }
+          },
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 100,
+            "pattern": "^[a-zA-Z0-9_\\-\\s]+$"
+          },
+          "displayName": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "webhookUrl": {
+            "type": "string"
+          },
+          "webhookSecret": {
+            "type": "string",
+            "minLength": 32
+          }
+        }
+      },
+      "UpdateTenantPlanDto": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "enum": [
+              "INTERNAL",
+              "FREE",
+              "STARTER",
+              "BUSINESS"
+            ],
+            "type": "string",
+            "description": "Target plan tier"
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      },
+      "ReassignTenantOwnerDto": {
+        "type": "object",
+        "properties": {
+          "adminId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "adminId"
+        ]
+      },
+      "CreateApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "messages:send",
+                "messages:read",
+                "templates:manage",
+                "usage:read",
+                "batch:send"
+              ]
+            },
+            "description": "Permission scopes — omit for unrestricted access"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateTemplateDto": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "enum": [
+              "plain",
+              "markdown"
+            ],
+            "type": "string",
+            "default": "plain",
+            "description": "Rich-text format. 'markdown' enables a safe bold-only subset; absent/'plain' = unchanged plain text."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 7000
+          }
+        },
+        "required": [
+          "name",
+          "body"
+        ]
+      },
+      "SetWebhookDto": {
+        "type": "object",
+        "properties": {
+          "webhookUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to deliver webhook events to"
+          },
+          "webhookSecret": {
+            "type": "string",
+            "minLength": 32,
+            "description": "Secret for HMAC-SHA256 signing — minimum 32 characters"
+          }
+        },
+        "required": [
+          "webhookUrl",
+          "webhookSecret"
+        ]
+      },
+      "UpdateDsarDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ACKNOWLEDGED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "REJECTED"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          },
+          "extendedUntil": {
+            "type": "string"
+          },
+          "extensionReason": {
+            "type": "string"
+          }
+        }
+      },
+      "SendTenantMessageDto": {
+        "type": "object",
+        "properties": {
+          "variables": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "name": "John",
+              "code": "1234"
+            },
+            "description": "Key-value pairs to substitute {{variable}} placeholders in the template"
+          },
+          "format": {
+            "enum": [
+              "plain",
+              "markdown"
+            ],
+            "type": "string",
+            "default": "plain",
+            "description": "Rich-text format. 'markdown' enables a safe bold-only subset; absent/'plain' = unchanged plain text."
+          },
+          "recipientPhone": {
+            "type": "string",
+            "pattern": "^\\+63\\d{10}$"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 7000
+          },
+          "templateId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "recipientPhone"
+        ]
+      },
+      "UpdateTemplateDto": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "enum": [
+              "plain",
+              "markdown"
+            ],
+            "type": "string",
+            "default": "plain",
+            "description": "Rich-text format. 'markdown' enables a safe bold-only subset; absent/'plain' = unchanged plain text."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 7000
+          }
+        }
+      },
+      "CreateBatchDto": {
+        "type": "object",
+        "properties": {
+          "recipients": {
+            "minItems": 1,
+            "maxItems": 500,
+            "example": [
+              "09123456789",
+              "09987654321"
+            ],
+            "description": "Philippine phone numbers of recipients (max 500) — supports formats: +639..., 09..., 9...",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^\\d{10,12}$"
+            }
+          },
+          "variables": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "name": "John",
+              "code": "1234"
+            },
+            "description": "Key-value pairs to substitute {{variable}} placeholders in the template"
+          },
+          "batchMessageId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Caller-supplied identifier echoed back in the BATCH_COMPLETED webhook payload — use this to correlate the webhook event with your original request"
+          },
+          "format": {
+            "enum": [
+              "plain",
+              "markdown"
+            ],
+            "type": "string",
+            "default": "plain",
+            "description": "Rich-text format. 'markdown' enables a safe bold-only subset; absent/'plain' = unchanged plain text."
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 7000
+          },
+          "templateId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "recipients",
+          "batchMessageId"
+        ]
+      }
+    }
+  }
+}
