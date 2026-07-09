@@ -1621,11 +1621,15 @@ Expected: `0`.
 
 - [ ] **Step 5: Typecheck**
 
+The frontend workspace is named `@rl/web`, not `frontend`. `pnpm --filter frontend typecheck`
+prints `No projects matched the filters` and **exits 0** — a verification step that can never
+fail. Use the package name, or a path:
+
 ```bash
-pnpm --filter frontend typecheck
+pnpm --filter @rl/web typecheck
 ```
 
-Expected: exits 0. (If `challenge.channel` errors as unknown, `packages/schemas` was not rebuilt — it is source-only, so re-run from the repo root.)
+Expected: `tsc --noEmit` runs and exits 0. (If `challenge.channel` errors as unknown, `packages/schemas` was not rebuilt — it is source-only, so re-run from the repo root.)
 
 - [ ] **Step 6: Drive the screen**
 
