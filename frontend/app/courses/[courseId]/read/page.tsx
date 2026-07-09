@@ -60,10 +60,21 @@ function PlayerScreen() {
   const [pageId, setPageId] = useState<string | null>(null);
   const [tocOpen, setTocOpen] = useState(false);
   const [isWide, setIsWide] = useState(false);
+  /** `t` hides/shows the docked rail at ≥720px (KEYS spec, lrn-b). */
+  const [railHidden, setRailHidden] = useState(false);
   const [liveMsg, setLiveMsg] = useState("");
 
   const contentRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+
+  /* reading keyboard: ←/→ pages · t TOC rail · Space video. The handler
+     lives in a ref because prev/next only exist after the manifest loads. */
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyHandler.current(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   /* ----- opening page: the TOC handoff, else the first unread page ----- */
   useEffect(() => {
@@ -210,6 +221,33 @@ function PlayerScreen() {
     goTo(next.page.id);
   };
 
+  keyHandler.current = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (e.key === "ArrowLeft") {
+      if (prev) {
+        e.preventDefault();
+        goTo(prev.page.id);
+      }
+    } else if (e.key === "ArrowRight") {
+      if (next) {
+        e.preventDefault();
+        goNext();
+      }
+    } else if ((e.key === "t" || e.key === "T") && isWide) {
+      e.preventDefault();
+      setRailHidden((h) => !h);
+    } else if (e.key === " " && !(t instanceof HTMLButtonElement) && !(t instanceof HTMLAnchorElement)) {
+      const video = contentRef.current?.querySelector("video");
+      if (video && !(t instanceof HTMLVideoElement)) {
+        e.preventDefault();
+        if (video.paused) void video.play();
+        else video.pause();
+      }
+    }
+  };
+
   return (
     <div className="plyr-root">
       <style>{playerCss}</style>
@@ -217,8 +255,8 @@ function PlayerScreen() {
         {liveMsg}
       </span>
 
-      {/* ----- docked TOC rail (≥720px, d4e) ----- */}
-      {isWide ? (
+      {/* ----- docked TOC rail (≥720px, d4e); `t` hides it (lrn-b) ----- */}
+      {isWide && !railHidden ? (
         <nav className="plyr-rail" aria-label="Chapters and pages">
           <TocPanel
             manifest={manifest}
@@ -227,6 +265,16 @@ function PlayerScreen() {
             currentPageId={current.page.id}
             onGo={goTo}
           />
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 10.5,
+              color: "var(--color-ink-subtle)",
+              padding: "0 6px",
+            }}
+          >
+            press <kbd className="rl-kbd">t</kbd> to hide
+          </div>
         </nav>
       ) : null}
 
@@ -239,6 +287,7 @@ function PlayerScreen() {
             className="plyr-context"
             onClick={() => {
               if (!isWide) setTocOpen(true);
+              else setRailHidden((h) => !h); // pointer equivalent of `t`
             }}
             aria-label="Open chapters and pages"
             aria-haspopup="dialog"
@@ -1017,5 +1066,12 @@ const playerCss = `
   .plyr-chrome{padding:13px 20px 8px;}
   .plyr-content{max-width:520px;padding:4px 20px 14px;}
   .plyr-pager{max-width:520px;padding:11px 20px 16px;}
+}
+/* Desktop (lrn-b): 250px rail, reading measure ~68ch centered, pager aligned */
+@media (min-width:1080px){
+  .plyr-rail{width:250px;padding:16px 12px;}
+  .plyr-chrome{padding:14px 24px 8px;}
+  .plyr-content{max-width:688px;width:100%;margin:0 auto;padding:6px 24px 16px;}
+  .plyr-pager{max-width:688px;width:100%;margin:0 auto;padding:12px 24px 16px;}
 }
 `;

@@ -67,8 +67,9 @@ function WalletScreen() {
     );
 
   return (
-    <AppShell>
-      <div className="page-body" style={{ paddingTop: 16 }}>
+    <AppShell wide>
+      <style>{walletCss}</style>
+      <div className="page-body wallet-body" style={{ paddingTop: 16 }}>
         <header style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <h1 style={{ flex: 1, margin: 0, fontSize: 19, fontWeight: 800 }}>My badges</h1>
           {pill}
@@ -90,7 +91,7 @@ function WalletScreen() {
             this phone.
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div className="wallet-grid">
             {badges.map((badge) =>
               badge.status === "revoked" ? (
                 <RevokedTile key={badge.id} badge={badge} />
@@ -216,6 +217,16 @@ function WalletScreen() {
     </AppShell>
   );
 }
+
+/* Badge grid: 2-up on phones (unchanged), 3-up at the desktop width
+   (lrn-c); the wallet column caps at ~980 so cards keep their shape. */
+const walletCss = `
+.wallet-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+@media (min-width:1080px){
+  .wallet-body{max-width:980px;margin:0 auto;width:100%;}
+  .wallet-grid{grid-template-columns:repeat(3,1fr);gap:12px;}
+}
+`;
 
 /** d9b: a revoked badge "stays here grayed for your records". */
 function RevokedTile({ badge }: { badge: CredentialListItem }) {

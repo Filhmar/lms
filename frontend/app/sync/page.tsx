@@ -62,15 +62,11 @@ function SyncScreen() {
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100dvh",
-        maxWidth: 480,
-        margin: "0 auto",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div className="sync-shell">
+      <style>{`
+        .sync-shell{min-height:100dvh;max-width:480px;margin:0 auto;display:flex;flex-direction:column;}
+        @media (min-width:1080px){.sync-shell{max-width:640px;}}
+      `}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px 10px" }}>
         <Link
           href="/exams"

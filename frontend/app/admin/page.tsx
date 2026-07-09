@@ -198,34 +198,102 @@ function AdminHomeBody() {
         />
       </div>
 
-      {/* Quick links */}
-      <div
-        style={{
-          padding: "16px 22px 22px",
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 12,
-        }}
-      >
-        <QuickLink
-          href="/admin/users"
-          icon="course"
-          title="Users"
-          sub="Search, create, and manage accounts"
-        />
-        <QuickLink
-          href="/admin/hierarchy"
-          icon="navigator"
-          title="Hierarchy"
-          sub="Browse your scopes, add new ones"
-        />
-        <QuickLink
-          href="/admin/import"
-          icon="send"
-          title="Import"
-          sub="Bulk-create users from a CSV"
-        />
+      {/* Lower grid — consoles (left) + quick actions card (right, ahm-a) */}
+      <div className="ahm-lower">
+        <style>{ahmCss}</style>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <QuickLink
+            href="/admin/users"
+            icon="users"
+            title="Users"
+            sub="Search, create, and manage accounts"
+          />
+          <QuickLink
+            href="/admin/hierarchy"
+            icon="tree"
+            title="Hierarchy"
+            sub="Browse your scopes, add new ones"
+          />
+          <QuickLink
+            href="/admin/credentials"
+            icon="shield"
+            title="Credentials"
+            sub="Oversee issuances, revoke and restore"
+          />
+        </div>
+        <div
+          style={{
+            background: "var(--color-card)",
+            border: "1px solid var(--color-border)",
+            borderRadius: 14,
+            padding: "14px 16px",
+            alignSelf: "start",
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 800 }}>Quick actions</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+            {/* radius-10 list buttons — deliberate desktop variant (ahm-a) */}
+            <Link
+              href="/admin/import"
+              style={{
+                height: 42,
+                background: "var(--color-primary)",
+                color: "#fff",
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                textDecoration: "none",
+              }}
+            >
+              <Icon name="download" size={15} />
+              Import users (CSV)
+            </Link>
+            <Link
+              href="/admin/hierarchy"
+              style={{
+                height: 42,
+                border: "1.5px solid var(--color-border)",
+                color: "var(--color-ink-secondary)",
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                textDecoration: "none",
+              }}
+            >
+              + Add a school
+            </Link>
+            <Link
+              href="/admin/health"
+              style={{
+                height: 42,
+                border: "1.5px solid var(--color-border)",
+                color: "var(--color-ink-secondary)",
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 700,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                textDecoration: "none",
+              }}
+            >
+              View send health
+            </Link>
+          </div>
+        </div>
       </div>
     </>
   );
 }
+
+const ahmCss = `
+.ahm-lower{padding:16px 22px 22px;display:grid;grid-template-columns:1fr;gap:12px;}
+@media (min-width:900px){.ahm-lower{grid-template-columns:1.4fr 1fr;}}
+`;

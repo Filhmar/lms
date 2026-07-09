@@ -322,9 +322,7 @@ function VerifyResult() {
           </h1>
           <Freshness t={t} checkedAt={checkedAt} />
         </div>
-        <div
-          style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}
-        >
+        <div className="portal-facts" style={{ padding: 14, fontSize: 13 }}>
           <Fact label={t.facts.holder} value={data.maskedName ?? "—"} c={c} />
           <Fact label={t.facts.credential} value={data.title ?? "—"} c={c} />
           <Fact

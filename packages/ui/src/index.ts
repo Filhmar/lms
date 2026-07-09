@@ -10,3 +10,27 @@ export { Field, ToggleRow, Switch, type FieldProps, type ToggleRowProps } from "
 export { ScopeBreadcrumb, type ScopeBreadcrumbProps } from "./breadcrumb";
 export { CredentialBadge, type CredentialBadgeProps } from "./credential";
 export { SkeletonRow } from "./skeleton";
+export {
+  BulkBar,
+  BulkPill,
+  Checkbox,
+  DataTable,
+  Dialog,
+  Dropzone,
+  FilterSelect,
+  Kbd,
+  MeatballMenu,
+  Pagination,
+  Popover,
+  SearchField,
+  Tooltip,
+  TreeView,
+  type DataTableColumn,
+  type DataTableProps,
+  type MenuItemDef,
+  type PopoverProps,
+  type SortDir,
+  type TableSort,
+  type TreeItem,
+  type TreeViewProps,
+} from "./desktop";

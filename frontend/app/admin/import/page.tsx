@@ -13,7 +13,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Icon } from "@rl/ui";
+import { Dropzone, Icon } from "@rl/ui";
 import type { BulkImportAccepted } from "@rl/schemas";
 import { CSV_IMPORT_HEADER } from "@rl/schemas";
 import { apiUpload, getErrorMessage } from "@/lib/api";
@@ -134,6 +134,8 @@ interface CheckedFile {
   problems: string[] | null;
   headerLine: string;
   dataRows: number;
+  /** First 5 data rows (name/email/role) — the visual mapping check (cimp-a). */
+  preview: { name: string; email: string; role: string }[];
 }
 
 async function checkFile(file: File): Promise<CheckedFile> {
@@ -141,6 +143,12 @@ async function checkFile(file: File): Promise<CheckedFile> {
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   const headerLine = lines[0]?.trim() ?? "";
   const dataRows = Math.max(0, lines.length - 1);
+  /* header order is fixed (email,full_name,role,phone) — naive split is
+     fine for a preview; the job does the authoritative parse */
+  const preview = lines.slice(1, 6).map((line) => {
+    const cells = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+    return { email: cells[0] ?? "", name: cells[1] ?? "", role: cells[2] ?? "" };
+  });
   const problems: string[] = [];
   if (headerLine === "") {
     problems.push("The file is empty — no header row found.");
@@ -158,7 +166,7 @@ async function checkFile(file: File): Promise<CheckedFile> {
   } else if (dataRows === 0) {
     problems.push("The header is right, but there are no data rows under it.");
   }
-  return { file, problems: problems.length > 0 ? problems : null, headerLine, dataRows };
+  return { file, problems: problems.length > 0 ? problems : null, headerLine, dataRows, preview };
 }
 
 export default function ImportWizardPage() {
@@ -229,52 +237,25 @@ function ImportWizardBody() {
             maxWidth: checked?.problems ? undefined : 560,
           }}
         >
-          {/* Dropzone / picker */}
-          <label
-            style={{
-              background: "var(--color-card)",
-              border: "2px dashed #ADC4F5",
-              borderRadius: 14,
-              padding: "28px 20px",
-              textAlign: "center",
-              cursor: "pointer",
-              display: "block",
-            }}
-          >
-            <input
-              type="file"
+          {/* Dropzone — drag-drop AND click-to-browse (keyboard-openable) */}
+          <div>
+            <Dropzone
               accept=".csv,text/csv"
-              style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}
-              onChange={(e) => {
-                void onPickFile(e.target.files?.[0]);
-                e.target.value = "";
-              }}
+              onFile={(file) => void onPickFile(file)}
+              title={
+                <>
+                  Drop CSV here or <strong style={{ color: "var(--color-primary)" }}>browse</strong>
+                </>
+              }
+              meta="up to 50,000 rows"
             />
-            <span
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: "50%",
-                background: "var(--color-primary-tint)",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "var(--color-primary)",
-              }}
-            >
-              <Icon name="send" size={26} />
-            </span>
-            <div style={{ fontSize: 15, fontWeight: 800, marginTop: 12 }}>Choose your CSV</div>
-            <div style={{ fontSize: 12, color: "var(--color-ink-subtle)", marginTop: 4 }}>
-              <strong style={{ color: "var(--color-primary)" }}>browse files</strong> · up to 50,000
-              rows
-            </div>
             <div
               style={{
                 fontSize: 11.5,
                 color: "var(--color-ink-subtle)",
-                marginTop: 14,
+                marginTop: 12,
                 lineHeight: 1.6,
+                textAlign: "center",
               }}
             >
               Needs exactly this header row:{" "}
@@ -288,11 +269,10 @@ function ImportWizardBody() {
               >
                 {EXPECTED_HEADER}
               </span>
-            </div>
-            <div style={{ fontSize: 11.5, color: "var(--color-ink-subtle)", marginTop: 8, lineHeight: 1.55 }}>
+              <br />
               The header is checked instantly on this computer — a bad file never starts a job.
             </div>
-          </label>
+          </div>
 
           {/* Failed structure check — a bad file never creates a job */}
           {checked?.problems ? (
@@ -464,6 +444,69 @@ function ImportWizardBody() {
                 {EXPECTED_HEADER}
               </div>
             </div>
+
+            {/* FIRST 5 ROWS — the visual mapping check */}
+            {checked.preview.length > 0 ? (
+              <div style={{ marginTop: 13 }}>
+                <Eyebrow style={{ letterSpacing: "0.07em" }}>First {checked.preview.length} rows</Eyebrow>
+                <div
+                  style={{
+                    border: "1px solid var(--color-border)",
+                    borderRadius: 10,
+                    overflow: "hidden",
+                    fontSize: 11.5,
+                    marginTop: 7,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1.4fr 0.8fr",
+                      background: "var(--color-surface-muted)",
+                      fontWeight: 800,
+                      color: "var(--color-ink-subtle)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      fontSize: 10,
+                      padding: "6px 10px",
+                    }}
+                  >
+                    <span>Name</span>
+                    <span>Email</span>
+                    <span>Role</span>
+                  </div>
+                  {checked.preview.map((r, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1.4fr 0.8fr",
+                        padding: "6px 10px",
+                        borderTop: "1px solid var(--color-divider)",
+                        alignItems: "center",
+                      }}
+                    >
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.name || "—"}
+                      </span>
+                      <span
+                        style={{
+                          color: "var(--color-ink-subtle)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {r.email || "—"}
+                      </span>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.role || "—"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <p
               style={{

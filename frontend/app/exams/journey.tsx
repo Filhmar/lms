@@ -25,6 +25,7 @@ import {
   Button,
   Chip,
   Icon,
+  Popover,
   SyncPill,
   TimerPill,
   Toast,
@@ -33,7 +34,8 @@ import {
 } from "@rl/ui";
 import * as copy from "@/lib/copy";
 import { getErrorMessage, NO_CONNECTION_MESSAGE } from "@/lib/api";
-import { useSession } from "@/lib/session";
+import { useDesktop } from "@/lib/hotkeys";
+import { initialsOf, useSession } from "@/lib/session";
 import * as engine from "@/lib/exam/engine";
 import { countAnswered, type UiExamItem } from "@/lib/exam/engine";
 import { useExamEngine } from "@/lib/exam/use-engine";
@@ -151,6 +153,8 @@ export function ExamJourney() {
   const eng = useExamEngine();
   const { user } = useSession();
   const wide = useWide();
+  /** ≥1080px — desktop LAB MODE (exl-a): docked palette rail + lab top bar. */
+  const lab = useDesktop();
   const batteryLow = useBatteryLow();
 
   const [stage, setStageRaw] = useState<Stage | null>(null);
@@ -352,6 +356,15 @@ export function ExamJourney() {
     return () => window.removeEventListener("keydown", onKey);
   }, [anyOverlay]);
 
+  /* ----- lab-mode marker: suppresses global nav shortcuts mid-exam ----- */
+  useEffect(() => {
+    if (stage !== "taking") return;
+    document.body.dataset.labMode = "1";
+    return () => {
+      delete document.body.dataset.labMode;
+    };
+  }, [stage]);
+
   /* ----- question focus + scroll reset on navigation ----- */
   const stemRef = useRef<HTMLElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -425,6 +438,68 @@ export function ExamJourney() {
     if (left === 0) showToast(strings.toastAllSent);
   };
 
+  /* ----- exam keyboard (KEYS spec): 1–4/A–D answer · ←/→ move · F flag ·
+     P focus palette · Enter next/review. Never while typing (ident input),
+     never with a modifier, never while an overlay is open. ----- */
+  useEffect(() => {
+    if (stage !== "taking" || anyOverlay) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const q = questions[cur];
+      if (!q) return;
+      const onControl = t instanceof HTMLButtonElement || t instanceof HTMLAnchorElement;
+
+      if (e.key === "ArrowLeft") {
+        if (cur > 0 && selectedId) {
+          e.preventDefault();
+          void engine.setCurrentIndex(selectedId, cur - 1);
+        }
+        return;
+      }
+      if (e.key === "ArrowRight") {
+        if (cur < total - 1 && selectedId) {
+          e.preventDefault();
+          void engine.setCurrentIndex(selectedId, cur + 1);
+        }
+        return;
+      }
+      if (e.key === "Enter") {
+        if (onControl) return; // focused buttons own Enter
+        e.preventDefault();
+        if (cur === total - 1) go("review");
+        else if (selectedId) void engine.setCurrentIndex(selectedId, cur + 1);
+        return;
+      }
+      if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        toggleFlag(q.id);
+        return;
+      }
+      if (e.key === "p" || e.key === "P") {
+        e.preventDefault();
+        if (wide || lab) {
+          document.querySelector<HTMLElement>("[data-palette-rail] .rl-navcell")?.focus();
+        } else {
+          setOv({ ...NO_OVERLAYS, palette: true });
+        }
+        return;
+      }
+      if (q.type !== "ident" && q.options && q.options.length > 0) {
+        let idx = -1;
+        if (/^[1-4]$/.test(e.key)) idx = Number(e.key) - 1;
+        else if (/^[a-dA-D]$/.test(e.key)) idx = e.key.toLowerCase().charCodeAt(0) - 97;
+        if (idx >= 0 && idx < q.options.length) {
+          e.preventDefault();
+          pickOption(q.id, q.options[idx]!.id);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   /* ----- derived (pill) ----- */
   const pendAll = eng.outbox.pending;
   const pillState: WorkState =
@@ -453,16 +528,28 @@ export function ExamJourney() {
     >
       {onBack ? <BackCircle label="Back" onClick={onBack} /> : null}
       <h1 style={{ flex: 1, fontSize: 19, fontWeight: 800, margin: 0 }}>{title}</h1>
-      <SyncPill
-        as="button"
-        chrome
-        state={pillState}
-        label={pillLabel}
-        offline={offline}
-        aria-haspopup="dialog"
-        onClick={() => setOv({ ...NO_OVERLAYS, sync: true })}
-        style={{ cursor: "pointer", border: "none", fontFamily: "inherit" }}
-      />
+      <span style={{ position: "relative", display: "inline-flex" }}>
+        <SyncPill
+          as="button"
+          chrome
+          state={pillState}
+          label={pillLabel}
+          offline={offline}
+          aria-haspopup="dialog"
+          onClick={() => setOv({ ...NO_OVERLAYS, sync: !ov.sync })}
+          style={{ cursor: "pointer", border: "none", fontFamily: "inherit" }}
+        />
+        {/* dsk-d: at ≥720dp the Sync Center anchors to the pill with a caret */}
+        {wide ? (
+          <Popover open={ov.sync} onClose={closeOv} aria-label="Sync Center" width={340}>
+            <SyncCenterContent
+              eng={eng}
+              onSendNow={() => void sendNow()}
+              device={lab ? "computer" : "phone"}
+            />
+          </Popover>
+        ) : null}
+      </span>
     </div>
   );
 
@@ -470,7 +557,7 @@ export function ExamJourney() {
     <div
       style={{
         minHeight: "100dvh",
-        maxWidth: 480,
+        maxWidth: lab ? 680 : 480,
         margin: "0 auto",
         display: "flex",
         flexDirection: "column",
@@ -922,8 +1009,8 @@ export function ExamJourney() {
           >
             {cur + 1}. {q.text}
           </legend>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
-            {(q.options ?? []).map((opt) => {
+          <div style={{ display: "flex", flexDirection: "column", gap: lab ? 11 : 10, marginTop: 14 }}>
+            {(q.options ?? []).map((opt, oi) => {
               const selected = selectedOpt === opt.id;
               return (
                 <label
@@ -932,7 +1019,7 @@ export function ExamJourney() {
                     display: "flex",
                     alignItems: "center",
                     gap: 12,
-                    minHeight: 54,
+                    minHeight: lab ? 56 : 54,
                     padding: "13px 15px",
                     borderRadius: 14,
                     cursor: "pointer",
@@ -951,7 +1038,28 @@ export function ExamJourney() {
                     onChange={() => pickOption(q.id, opt.id)}
                     style={srOnly}
                   />
-                  {selected ? (
+                  {lab ? (
+                    /* letter chip (A–D) — keyboard 1–4 / A–D select (exl-a) */
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 26,
+                        height: 26,
+                        borderRadius: 7,
+                        border: `1.5px solid ${selected ? "var(--color-primary)" : "var(--color-checkbox-border)"}`,
+                        color: selected ? "var(--color-primary)" : "var(--color-ink-subtle)",
+                        background: "var(--color-card)",
+                        fontSize: 12,
+                        fontWeight: 800,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {String.fromCharCode(65 + oi)}
+                    </span>
+                  ) : selected ? (
                     <span
                       style={{
                         width: 22,
@@ -1019,8 +1127,321 @@ export function ExamJourney() {
       </div>
     );
 
+    /* ================= LAB MODE (≥1080px, exl-a) ================= */
+    if (lab) {
+      const labTLabel =
+        phase === "critical" ? "almost up" : phase === "warning" ? copy.exam.timerFiveMin : "time left";
+      return (
+        <div
+          style={{
+            height: "100dvh",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            background: "var(--color-canvas)",
+          }}
+        >
+          <style>{`.exl-timer{padding:8px 20px;} .exl-timer .rl-timer__value{font-size:22px;}`}</style>
+
+          {/* lab top bar — replaces all chrome; no navigation away mid-exam */}
+          <div
+            style={{
+              background: "var(--color-card)",
+              borderBottom: "1px solid var(--color-border)",
+              padding: "11px 22px",
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              flexShrink: 0,
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: "50%",
+                border: "1.5px solid var(--color-primary)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 6,
+                fontFamily: "ui-monospace, Menlo, monospace",
+                color: "var(--color-ink-subtle)",
+                flexShrink: 0,
+              }}
+            >
+              DepEd
+            </span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {pkg.title}
+              </div>
+              <div style={{ fontSize: 11, color: SUB, marginTop: 1 }}>
+                {user?.scopeName ?? "Your school"} · exam in progress
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+              <TimerPill className="exl-timer" value={fmtClock(remaining)} phase={phase} label={labTLabel} />
+              <Chip tone="on-device" size="compact" icon={<Icon name="phone-check" size={13} />}>
+                Saved on this device
+              </Chip>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7,
+                  background: "var(--color-canvas)",
+                  border: "1.5px solid var(--color-border)",
+                  borderRadius: 999,
+                  padding: "5px 12px 5px 5px",
+                }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    background: "var(--color-primary)",
+                    color: "#fff",
+                    fontSize: 11,
+                    fontWeight: 800,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {user ? initialsOf(user.fullName) : "—"}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{user?.fullName ?? "Signed in"}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setOv({ ...NO_OVERLAYS, leave: true })}
+                style={{
+                  height: 34,
+                  padding: "0 13px",
+                  border: "1.5px solid var(--color-border)",
+                  borderRadius: 999,
+                  background: "var(--color-card)",
+                  color: "var(--color-ink-subtle)",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Exit
+              </button>
+            </div>
+          </div>
+
+          {/* body: question column | permanently docked palette rail */}
+          <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "1fr 288px" }}>
+            <div ref={scrollRef} style={{ overflowY: "auto", padding: "18px 24px 24px" }}>
+              <div style={{ maxWidth: 680, margin: "0 auto" }}>
+                {/* progress = answered count, not position */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div
+                    style={{ flex: 1, height: 8, background: "var(--color-border)", borderRadius: 4, overflow: "hidden" }}
+                    role="progressbar"
+                    aria-label="Answered"
+                    aria-valuenow={paletteAnswered}
+                    aria-valuemin={0}
+                    aria-valuemax={total}
+                  >
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${total > 0 ? Math.round((paletteAnswered / total) * 100) : 0}%`,
+                        background: "var(--color-primary)",
+                        borderRadius: 4,
+                      }}
+                    />
+                  </div>
+                  <span className="rl-num" style={{ fontSize: 12, fontWeight: 700, color: SUB, flexShrink: 0 }}>
+                    {paletteAnswered} of {total} answered
+                  </span>
+                </div>
+
+                {/* reassurance strip — device-noun swap for lab machines */}
+                <div
+                  style={{
+                    background: "var(--color-on-device-bg)",
+                    borderRadius: 12,
+                    padding: "11px 15px",
+                    display: "flex",
+                    gap: 11,
+                    marginTop: 14,
+                  }}
+                >
+                  <span style={{ color: "var(--color-on-device-fg)", flexShrink: 0, display: "inline-flex" }}>
+                    <Icon name="phone-check" size={18} />
+                  </span>
+                  <div style={{ fontSize: 13, lineHeight: 1.45, color: "var(--color-warning-ink)" }}>
+                    <b style={{ color: "var(--color-warning-ink-strong)" }}>
+                      Your answers save on this computer as you go.
+                    </b>{" "}
+                    If it restarts, you continue right where you stopped.
+                  </div>
+                </div>
+
+                {batteryLow ? (
+                  <div
+                    style={{
+                      background: "var(--color-on-device-bg)",
+                      border: "1.5px solid var(--color-warning-border)",
+                      borderRadius: 12,
+                      padding: "10px 13px",
+                      display: "flex",
+                      gap: 10,
+                      marginTop: 10,
+                    }}
+                  >
+                    <span style={{ color: "var(--color-on-device-fg)", flexShrink: 0, display: "inline-flex" }}>
+                      <BatteryLowIcon size={17} />
+                    </span>
+                    <div style={{ fontSize: 12.5, lineHeight: 1.4, color: "var(--color-on-device-fg)" }}>
+                      <b>Battery low.</b> Your answers save with every tap — nothing is lost.
+                    </div>
+                  </div>
+                ) : null}
+
+                <div style={{ marginTop: 20 }}>{questionBlock}</div>
+                <div aria-live="polite" style={{ marginTop: 14 }}>
+                  {answeredHere ? (
+                    <Chip
+                      tone="synced"
+                      icon={<Icon name="check" size={14} />}
+                      style={{ padding: "6px 12px", fontSize: 12.5 }}
+                    >
+                      Saved on this device · just now
+                    </Chip>
+                  ) : null}
+                </div>
+
+                {/* bottom nav: Prev · Flag (F) · Next (→/Enter), all ≥48px */}
+                <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
+                  <button
+                    type="button"
+                    aria-label="Previous question"
+                    aria-disabled={cur === 0}
+                    onClick={() => {
+                      if (cur > 0 && selectedId) void engine.setCurrentIndex(selectedId, cur - 1);
+                    }}
+                    style={{
+                      height: 48,
+                      padding: "0 20px",
+                      border: "1.5px solid var(--color-border)",
+                      background: "var(--color-card)",
+                      borderRadius: 999,
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: "var(--color-ink-secondary)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 7,
+                      cursor: cur === 0 ? "default" : "pointer",
+                      opacity: cur === 0 ? 0.45 : 1,
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    <ChevronLeft size={16} />
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Flag for review"
+                    aria-pressed={flagged}
+                    onClick={() => toggleFlag(q.id)}
+                    style={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: "50%",
+                      background: flagged ? "var(--color-on-device-bg)" : "var(--color-card)",
+                      border: flagged
+                        ? "2px solid var(--color-on-device-solid)"
+                        : "1.5px solid var(--color-border)",
+                      color: flagged ? "var(--color-on-device-fg)" : "var(--color-ink)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      padding: 0,
+                    }}
+                  >
+                    <Icon name="flag" size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    className="rl-btn rl-btn--primary"
+                    style={{ flex: 1, height: 48, fontSize: 16, fontWeight: 800, gap: 9 }}
+                    onClick={() => {
+                      if (cur === total - 1) go("review");
+                      else if (selectedId) void engine.setCurrentIndex(selectedId, cur + 1);
+                    }}
+                  >
+                    {cur === total - 1 ? "Review" : "Next"}
+                    <ArrowRight size={15} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* palette rail — permanent at desktop (the mobile sheet, docked) */}
+            <div
+              data-palette-rail
+              style={{
+                background: "var(--color-card)",
+                borderLeft: "1px solid var(--color-border)",
+                padding: "18px 16px",
+                display: "flex",
+                flexDirection: "column",
+                overflowY: "auto",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "baseline" }}>
+                <div style={{ flex: 1, fontSize: 13, fontWeight: 800 }}>Questions</div>
+                <div className="rl-num" style={{ fontSize: 11.5, fontWeight: 600, color: SUB }}>
+                  {paletteAnswered} of {total}
+                </div>
+              </div>
+              <div style={{ marginTop: 13 }}>
+                <PaletteGrid
+                  answers={paletteAnswers}
+                  flags={paletteFlags}
+                  cur={cur}
+                  showCurrent
+                  cols={4}
+                  cellH={48}
+                  onPick={jumpTo}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 10, marginTop: 12, fontSize: 10.5, color: SUB }}>
+                <span>filled answered</span>
+                <span>flag review</span>
+                <span>ring current</span>
+              </div>
+              <div style={{ marginTop: "auto", paddingTop: 16 }}>
+                <Button
+                  variant="secondary"
+                  style={{ width: "100%", height: 48, fontSize: 14, fontWeight: 800 }}
+                  onClick={() => go("review")}
+                >
+                  Review &amp; submit
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const rail = (
       <div
+        data-palette-rail
         style={{
           ...card,
           padding: 13,
@@ -1795,48 +2216,21 @@ export function ExamJourney() {
         </>
       ) : null}
 
-      {/* Sync Center: sheet on phones, anchored popover at ≥720dp */}
-      {ov.sync ? (
-        wide ? (
-          <>
-            <div className="scrim" style={{ background: "transparent" }} onClick={closeOv} />
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-label="Sync Center"
-              style={{
-                position: "fixed",
-                top: 64,
-                left: "50%",
-                transform: "translateX(calc(-50% + 70px))",
-                width: 360,
-                maxWidth: "calc(100vw - 32px)",
-                background: "var(--color-card)",
-                border: "1px solid var(--color-border)",
-                borderRadius: 14,
-                boxShadow: "0 10px 30px rgba(12,19,34,0.14)",
-                padding: 14,
-                zIndex: 51,
-              }}
-            >
-              <SyncCenterContent eng={eng} onSendNow={() => void sendNow()} />
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="scrim" onClick={closeOv} />
-            <div
-              className="sheet"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Sync Center"
-              style={{ borderRadius: "20px 20px 0 0", padding: "16px 16px 18px" }}
-            >
-              <div className="sheet__grabber" style={{ width: 44, height: 5, borderRadius: 3, marginBottom: 13 }} />
-              <SyncCenterContent eng={eng} onSendNow={() => void sendNow()} />
-            </div>
-          </>
-        )
+      {/* Sync Center sheet (phones; the anchored popover lives in chromeBar) */}
+      {ov.sync && !wide ? (
+        <>
+          <div className="scrim" onClick={closeOv} />
+          <div
+            className="sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Sync Center"
+            style={{ borderRadius: "20px 20px 0 0", padding: "16px 16px 18px" }}
+          >
+            <div className="sheet__grabber" style={{ width: 44, height: 5, borderRadius: 3, marginBottom: 13 }} />
+            <SyncCenterContent eng={eng} onSendNow={() => void sendNow()} />
+          </div>
+        </>
       ) : null}
 
       {/* dialogs */}
@@ -1878,11 +2272,15 @@ export function ExamJourney() {
 
       {ov.leave ? (
         <DialogShell
-          title="Leave the exam?"
-          body="Your answers stay saved on this phone, but the timer keeps running."
+          title={lab ? "Exit the exam?" : "Leave the exam?"}
+          body={
+            lab
+              ? `Your answers stay saved on this device, but the timer keeps running. You'll come back to question ${cur + 1}.`
+              : "Your answers stay saved on this phone, but the timer keeps running."
+          }
           primaryLabel="Stay in exam"
           onPrimary={closeOv}
-          secondaryLabel="Leave anyway"
+          secondaryLabel={lab ? "Exit" : "Leave anyway"}
           onSecondary={() => go("detail")}
           onDismiss={closeOv}
         />

@@ -1,21 +1,22 @@
 "use client";
 
 /**
- * p1f + d7a–d7c — Hierarchy console, wired to the live API.
- *   · GET /scopes/:id/subtree   (the admin's whole visible tree)
+ * Hierarchy console, wired to the live API — desktop layout per hier-a:
+ * TRUE tree (left, role="tree", ↑↓←→ keyboard) + scope detail panel (right).
+ *   · GET /scopes/:id/subtree   (flat closure list: scope + depth)
  *   · GET /scopes/:id/stats     (selected-scope counts)
  *   · GET /scopes/:id/breadcrumb(selected-scope path)
  *   · POST /scopes              (create a child scope, invariants surfaced)
- * The subtree payload is the flat closure list (scope + depth, no parent
- * links), so the left rail groups scopes BY LEVEL rather than as a nested
- * tree — a documented limitation until parent linkage ships. Ancestors
- * above the admin's scope render grayed with a padlock (orientation only);
- * any 403 renders the designed scope wall.
+ * The subtree payload carries NO parent links, so nesting is inferred
+ * lazily: expanding a node fetches ITS subtree once and reads depth === 1
+ * as its direct children (one sparing call per expanded node, cached).
+ * Ancestors above the admin's scope render muted — orientation only,
+ * never selectable. Any 403 renders the designed scope wall.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Chip, Icon } from "@rl/ui";
+import { Chip, Icon, TreeView, type TreeItem } from "@rl/ui";
 import type {
   BreadcrumbResponse,
   CreateScopeRequest,
@@ -38,35 +39,13 @@ function childLevelOf(level: ScopeLevel): ScopeLevel | null {
   return i >= 0 && i < ScopeLevels.length - 1 ? ScopeLevels[i + 1]! : null;
 }
 
-const treeRowBase: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 7,
-  padding: "8px 10px",
-  borderRadius: 9,
-  fontSize: 13,
-  fontWeight: 600,
-  width: "100%",
-  textAlign: "left",
-  border: "none",
-  background: "none",
-  fontFamily: "inherit",
-};
-
-function LockedTreeRow({ children }: { children: string }) {
-  return (
-    <div style={{ ...treeRowBase, paddingLeft: 10, color: "var(--color-ink-faint)" }}>
-      <Icon name="lock" size={11} />
-      {children}
-    </div>
-  );
-}
-
 interface ScopeDetail {
   stats: ScopeStatsResponse | null;
   children: ScopeWithDepth[];
   path: ScopeWithDepth[];
 }
+
+const byName = (a: ScopeWithDepth, b: ScopeWithDepth) => a.name.localeCompare(b.name);
 
 export default function HierarchyPage() {
   const [query, setQuery] = useState("");
@@ -75,24 +54,20 @@ export default function HierarchyPage() {
       title="Hierarchy"
       note="Your scope — you can't see sibling scopes"
       barExtra={
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search within your scope…"
-          aria-label="Search within your scope"
-          style={{
-            height: 40,
-            border: "1.5px solid var(--color-border)",
-            borderRadius: 999,
-            padding: "0 15px",
-            fontSize: 12.5,
-            background: "var(--color-card)",
-            color: "var(--color-ink)",
-            width: 230,
-            fontFamily: "inherit",
-          }}
-        />
+        <label className="rl-search" style={{ width: 260, height: 36 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden style={{ flexShrink: 0 }}>
+            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth={2.2} />
+            <path d="M16.5 16.5L21 21" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search within your scope…"
+            aria-label="Search within your scope"
+            data-hotkey-search="true"
+          />
+        </label>
       }
     >
       <HierarchyBody query={query} />
@@ -107,6 +82,51 @@ function HierarchyBody({ query }: { query: string }) {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const effectiveSelected = selectedId ?? rootId;
+
+  /* ------- lazy tree data: scopeId → direct children (depth === 1) ------- */
+  const [childrenMap, setChildrenMap] = useState<Record<string, ScopeWithDepth[]>>({});
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
+  const inflight = useRef(new Set<string>());
+
+  /* the root subtree we already have seeds the root's children */
+  useEffect(() => {
+    if (!scopes || !rootId) return;
+    setChildrenMap((prev) =>
+      prev[rootId] ? prev : { ...prev, [rootId]: scopes.filter((s) => s.depth === 1).sort(byName) },
+    );
+    setExpanded((prev) => {
+      if (prev.has(rootId)) return prev;
+      const next = new Set(prev);
+      next.add(rootId);
+      return next;
+    });
+  }, [scopes, rootId]);
+
+  const loadChildren = useCallback(
+    (id: string) => {
+      if (childrenMap[id] || inflight.current.has(id)) return;
+      inflight.current.add(id);
+      setLoadingIds((prev) => new Set(prev).add(id));
+      apiGet<SubtreeResponse>(`/scopes/${id}/subtree`)
+        .then((res) => {
+          setChildrenMap((prev) => ({
+            ...prev,
+            [id]: res.scopes.filter((s) => s.depth === 1).sort(byName),
+          }));
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          inflight.current.delete(id);
+          setLoadingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+        });
+    },
+    [childrenMap],
+  );
 
   /* ------- selected-scope detail: stats + children + path, in parallel ------- */
   const [detail, setDetail] = useState<ScopeDetail | null>(null);
@@ -129,11 +149,10 @@ function HierarchyBody({ query }: { query: string }) {
     ])
       .then(([stats, subtree, crumb]) => {
         if (cancelled) return;
-        setDetail({
-          stats,
-          children: subtree.scopes.filter((s) => s.depth === 1).sort((a, b) => a.name.localeCompare(b.name)),
-          path: crumb?.chain ?? [],
-        });
+        const children = subtree.scopes.filter((s) => s.depth === 1).sort(byName);
+        setDetail({ stats, children, path: crumb?.chain ?? [] });
+        // the detail fetch doubles as the tree's lazy loader for this node
+        setChildrenMap((prev) => ({ ...prev, [effectiveSelected]: children }));
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -147,24 +166,73 @@ function HierarchyBody({ query }: { query: string }) {
   /* ----------------------------- create dialog ----------------------------- */
   const [createOpen, setCreateOpen] = useState(false);
 
-  const selectedScope: Scope | null = useMemo(() => {
-    if (!scopes || !effectiveSelected) return null;
-    return scopes.find((s) => s.id === effectiveSelected) ?? null;
-  }, [scopes, effectiveSelected]);
+  const scopeById = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; level: ScopeLevel }>();
+    if (user) map.set(user.scopeId, { id: user.scopeId, name: user.scopeName, level: user.scopeLevel });
+    for (const s of scopes ?? []) map.set(s.id, s);
+    for (const list of Object.values(childrenMap)) for (const s of list) map.set(s.id, s);
+    return map;
+  }, [scopes, childrenMap, user]);
 
-  /* ------------------------------- left rail ------------------------------- */
+  const selectedScope: Scope | null = useMemo(() => {
+    if (!effectiveSelected) return null;
+    const hit = scopeById.get(effectiveSelected);
+    return hit ? { id: hit.id, name: hit.name, level: hit.level, createdAt: "" } : null;
+  }, [scopeById, effectiveSelected]);
+
+  /* ------------------------------- tree items ------------------------------- */
   const q = query.trim().toLowerCase();
-  const grouped = useMemo(() => {
-    if (!scopes) return [];
-    const filtered = q ? scopes.filter((s) => s.name.toLowerCase().includes(q)) : scopes;
-    return ScopeLevels.map((level) => ({
-      level,
-      items: filtered
-        .filter((s) => s.level === level && s.depth > 0)
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    })).filter((g) => g.items.length > 0);
+  const matches = useMemo(() => {
+    if (!scopes || !q) return [];
+    return scopes.filter((s) => s.name.toLowerCase().includes(q)).sort(byName);
   }, [scopes, q]);
-  const matchCount = q ? grouped.reduce((n, g) => n + g.items.length, 0) : 0;
+
+  const buildItem = useCallback(
+    (id: string, name: string, level: ScopeLevel): TreeItem => {
+      const kids = childrenMap[id];
+      return {
+        id,
+        name: `${name} · ${LEVEL_LABEL[level]}`,
+        label: name,
+        canExpand: level !== "school",
+        badge: kids ? fmt(kids.length) : undefined,
+        meta: kids && kids.length > 0 ? fmt(kids.length) : undefined,
+        children: kids?.map((k) => buildItem(k.id, k.name, k.level)),
+      };
+    },
+    [childrenMap],
+  );
+
+  const treeItems: TreeItem[] = useMemo(() => {
+    if (!user) return [];
+    const rootItem = buildItem(user.scopeId, user.scopeName, user.scopeLevel);
+    /* ancestors above scope: muted for orientation, never selectable */
+    const ancestors = (breadcrumb ?? []).slice(0, -1);
+    let tree: TreeItem = rootItem;
+    for (let i = ancestors.length - 1; i >= 0; i--) {
+      const a = ancestors[i]!;
+      tree = {
+        id: a.id,
+        name: `${a.name} · ${LEVEL_LABEL[a.level]} (above your scope)`,
+        label: a.name,
+        muted: true,
+        canExpand: true,
+        children: [tree],
+      };
+    }
+    return [tree];
+  }, [user, breadcrumb, buildItem]);
+
+  /* ancestors start expanded so the admin's own scope is visible */
+  useEffect(() => {
+    const ancestors = (breadcrumb ?? []).slice(0, -1);
+    if (ancestors.length === 0) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const a of ancestors) next.add(a.id);
+      return next;
+    });
+  }, [breadcrumb]);
 
   if (!user) return null;
 
@@ -173,21 +241,22 @@ function HierarchyBody({ query }: { query: string }) {
     return <ScopeWall message={subtreeError.message} />;
   }
 
-  const rootMatchesQuery = !q || user.scopeName.toLowerCase().includes(q);
-  const lockedAncestors = (breadcrumb ?? []).slice(0, -1);
-
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "320px 1fr" }}>
-      {/* ---------------- Left rail — your visible scopes ---------------- */}
+    <div className="hier-grid">
+      <style>{hierCss}</style>
+
+      {/* ---------------- Tree pane ---------------- */}
       <div
         style={{
           borderRight: "1px solid var(--color-border)",
-          padding: "16px 14px",
+          padding: "16px 12px",
           background: "var(--color-card)",
           minHeight: 520,
         }}
       >
-        <Eyebrow style={{ marginBottom: 10 }}>Your scopes</Eyebrow>
+        <Eyebrow spacing="0.07em" style={{ marginBottom: 10, padding: "0 4px" }}>
+          Your tree
+        </Eyebrow>
 
         {subtreeError && subtreeError.status !== 403 ? (
           <AdminErrorBanner>
@@ -211,72 +280,56 @@ function HierarchyBody({ query }: { query: string }) {
           </AdminErrorBanner>
         ) : null}
 
-        {q ? (
-          <div style={{ fontSize: 11.5, color: "var(--color-ink-subtle)", padding: "0 4px 8px" }}>
-            {matchCount + (rootMatchesQuery ? 1 : 0)} match
-            {matchCount + (rootMatchesQuery ? 1 : 0) === 1 ? "" : "es"} in your scope
-          </div>
-        ) : null}
-
-        {/* Grayed ancestors — orientation only, never clickable */}
-        {lockedAncestors.map((s) => (
-          <LockedTreeRow key={s.id}>{`${s.name} · ${LEVEL_LABEL[s.level]}`}</LockedTreeRow>
-        ))}
-
-        {/* The admin's own scope */}
-        {rootMatchesQuery ? (
-          <button
-            type="button"
-            onClick={() => setSelectedId(rootId)}
-            style={{
-              ...treeRowBase,
-              cursor: "pointer",
-              background: effectiveSelected === rootId ? "var(--color-primary-tint)" : "none",
-              color: effectiveSelected === rootId ? "var(--color-primary)" : "var(--color-ink-secondary)",
-            }}
-          >
-            <span style={{ flex: 1 }}>{user.scopeName}</span>
-            <span style={{ fontSize: 10.5, color: "var(--color-ink-faint)" }}>· you</span>
-          </button>
-        ) : null}
-
-        {/* Descendants grouped by level (flat closure list — no parent links) */}
         {!scopes && !subtreeError ? (
           <div style={{ fontSize: 12, color: "var(--color-ink-subtle)", padding: "8px 4px" }}>
             Loading your scopes…
           </div>
         ) : null}
-        {scopes && grouped.length === 0 && q && !rootMatchesQuery ? (
-          <p style={{ fontSize: 12, color: "var(--color-ink-subtle)", lineHeight: 1.55, padding: "8px 4px" }}>
-            No matches inside {user.scopeName}. Results never include sibling scopes.
-          </p>
-        ) : null}
-        {grouped.map((g) => (
-          <div key={g.level} style={{ marginTop: 8 }}>
-            <Eyebrow spacing="0.06em" style={{ padding: "0 10px 4px" }}>
-              {LEVEL_LABEL[g.level]}s · {fmt(g.items.length)}
-            </Eyebrow>
-            {g.items.map((s) => {
-              const selected = s.id === effectiveSelected;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setSelectedId(s.id)}
-                  style={{
-                    ...treeRowBase,
-                    paddingLeft: 22,
-                    cursor: "pointer",
-                    background: selected ? "var(--color-primary-tint)" : "none",
-                    color: selected ? "var(--color-primary)" : "var(--color-ink-secondary)",
-                  }}
-                >
-                  {s.name}
-                </button>
-              );
-            })}
-          </div>
-        ))}
+
+        {q ? (
+          /* search shows flat matches (stays inside scope), not the tree */
+          <>
+            <div style={{ fontSize: 11.5, color: "var(--color-ink-subtle)", padding: "0 4px 8px" }}>
+              {fmt(matches.length)} match{matches.length === 1 ? "" : "es"} in your scope
+            </div>
+            {matches.length === 0 ? (
+              <p style={{ fontSize: 12, color: "var(--color-ink-subtle)", lineHeight: 1.55, padding: "0 4px" }}>
+                No matches inside {user.scopeName}. Results never include sibling scopes.
+              </p>
+            ) : null}
+            {matches.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSelectedId(s.id)}
+                className={`rl-tree__node${s.id === effectiveSelected ? " rl-tree__node--selected" : ""}`}
+              >
+                <span className="rl-tree__label">{s.name}</span>
+                <span className="rl-tree__count">{LEVEL_LABEL[s.level]}</span>
+              </button>
+            ))}
+          </>
+        ) : (
+          <TreeView
+            aria-label="Your visible scopes"
+            items={treeItems}
+            expanded={expanded}
+            loadingIds={loadingIds}
+            onToggle={(id, willExpand) => {
+              setExpanded((prev) => {
+                const next = new Set(prev);
+                if (willExpand) next.add(id);
+                else next.delete(id);
+                return next;
+              });
+              if (willExpand && !childrenMap[id] && scopeById.get(id)?.level !== "school") {
+                loadChildren(id);
+              }
+            }}
+            selectedId={effectiveSelected}
+            onSelect={(id) => setSelectedId(id)}
+          />
+        )}
 
         {/* Scope callout */}
         <div
@@ -293,12 +346,12 @@ function HierarchyBody({ query }: { query: string }) {
           <strong style={{ color: "var(--color-ink-secondary)" }}>
             Grayed levels are above your scope.
           </strong>{" "}
-          Sibling scopes are never visible from here. Scopes are grouped by level — the subtree
-          payload carries no parent links yet, so a nested tree isn&rsquo;t drawn.
+          Sibling scopes are never visible from here. Expanding a branch loads its children once —
+          the closure payload carries no parent links, so nesting is inferred per node.
         </div>
       </div>
 
-      {/* ---------------- Right pane — selected scope detail ---------------- */}
+      {/* ---------------- Detail panel ---------------- */}
       <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 12 }}>
         {detailError?.status === 403 ? (
           <ScopeWall message={detailError.message} onBack={() => setSelectedId(rootId)} />
@@ -322,16 +375,9 @@ function HierarchyBody({ query }: { query: string }) {
               Try again
             </button>
           </AdminErrorBanner>
-        ) : selectedScope || effectiveSelected === rootId ? (
+        ) : selectedScope ? (
           <ScopeDetailPane
-            scope={
-              selectedScope ?? {
-                id: user.scopeId,
-                name: user.scopeName,
-                level: user.scopeLevel,
-                createdAt: "",
-              }
-            }
+            scope={selectedScope}
             isOwnScope={effectiveSelected === rootId}
             detail={detail}
             onPick={(id) => setSelectedId(id)}
@@ -341,14 +387,20 @@ function HierarchyBody({ query }: { query: string }) {
       </div>
 
       {/* Create-scope dialog */}
-      {createOpen && selectedScopeOrRoot(user, selectedScope) ? (
+      {createOpen && selectedScope ? (
         <CreateScopeDialog
-          parent={selectedScopeOrRoot(user, selectedScope)!}
+          parent={selectedScope}
           onClose={() => setCreateOpen(false)}
           onCreated={() => {
             setCreateOpen(false);
             reloadSubtree();
             setDetailNonce((n) => n + 1);
+            /* refresh the cached children of the parent */
+            setChildrenMap((prev) => {
+              const next = { ...prev };
+              delete next[selectedScope.id];
+              return next;
+            });
           }}
         />
       ) : null}
@@ -356,13 +408,10 @@ function HierarchyBody({ query }: { query: string }) {
   );
 }
 
-function selectedScopeOrRoot(
-  user: { scopeId: string; scopeName: string; scopeLevel: ScopeLevel },
-  selected: Scope | null,
-): Scope | null {
-  if (selected) return selected;
-  return { id: user.scopeId, name: user.scopeName, level: user.scopeLevel, createdAt: "" };
-}
+const hierCss = `
+.hier-grid{display:grid;grid-template-columns:340px 1fr;}
+@media (max-width:900px){.hier-grid{grid-template-columns:1fr;}.hier-grid>div:first-child{border-right:none;border-bottom:1px solid var(--color-border);min-height:0;}}
+`;
 
 /* ------------------------------ detail pane ------------------------------ */
 
@@ -373,14 +422,14 @@ function StatTile({ eyebrow, value, tone }: { eyebrow: string; value: string; to
         background: "var(--color-card)",
         border: "1px solid var(--color-border)",
         borderRadius: 12,
-        padding: "11px 13px",
+        padding: "13px 15px",
       }}
     >
       <Eyebrow color={tone === "pending" ? "var(--color-on-device-fg)" : undefined}>{eyebrow}</Eyebrow>
       <div
         className="rl-num"
         style={{
-          fontSize: 21,
+          fontSize: 22,
           fontWeight: 800,
           marginTop: 4,
           color: tone === "pending" ? "var(--color-on-device-fg)" : undefined,
@@ -411,15 +460,15 @@ function ScopeDetailPane({
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
           {pathNames.length > 1 ? (
             <div style={{ fontSize: 11.5, color: "var(--color-ink-subtle)", marginBottom: 4 }}>
               {pathNames.join(" › ")}
             </div>
           ) : null}
           <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
-            <h2 style={{ fontSize: 18, fontWeight: 800 }}>{scope.name}</h2>
+            <h2 style={{ fontSize: 19, fontWeight: 800 }}>{scope.name}</h2>
             <Chip tone="role" size="mini">
               {LEVEL_LABEL[scope.level]}
             </Chip>
@@ -435,11 +484,11 @@ function ScopeDetailPane({
             type="button"
             onClick={onCreate}
             style={{
-              height: 40,
-              padding: "0 16px",
-              background: "var(--color-primary)",
-              color: "#ffffff",
-              border: "none",
+              height: 38,
+              padding: "0 15px",
+              border: "1.5px solid var(--color-primary)",
+              color: "var(--color-primary)",
+              background: "var(--color-card)",
               borderRadius: 999,
               fontSize: 12.5,
               fontWeight: 800,
@@ -454,11 +503,10 @@ function ScopeDetailPane({
         <Link
           href="/admin/import"
           style={{
-            height: 40,
-            padding: "0 16px",
-            border: "1.5px solid var(--color-primary)",
-            color: "var(--color-primary)",
-            background: "var(--color-card)",
+            height: 38,
+            padding: "0 15px",
+            background: "var(--color-primary)",
+            color: "#ffffff",
             borderRadius: 999,
             fontSize: 12.5,
             fontWeight: 800,
@@ -487,28 +535,16 @@ function ScopeDetailPane({
         />
       </div>
 
-      {/* Direct children */}
-      <div
-        style={{
-          background: "var(--color-card)",
-          border: "1px solid var(--color-border)",
-          borderRadius: 14,
-          overflow: "hidden",
-        }}
-      >
-        <div
-          style={{
-            padding: "10px 16px",
-            fontSize: 10.5,
-            fontWeight: 800,
-            letterSpacing: "0.06em",
-            color: "var(--color-ink-subtle)",
-            borderBottom: "1.5px solid var(--color-border)",
-            textTransform: "uppercase",
-          }}
-        >
-          {childLevel ? `${LEVEL_LABEL[childLevel]}s directly under ${scope.name}` : "School scope"}
-          {detail ? ` · ${fmt(detail.children.length)}` : ""}
+      {/* Direct children — the DSK table shell */}
+      <div className="rl-table">
+        <div className="rl-table__head" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
+          <span className="rl-table__hcell">
+            {childLevel ? `${LEVEL_LABEL[childLevel]}s under ${scope.name}` : "School scope"}
+          </span>
+          <span className="rl-table__hcell">Level</span>
+          <span className="rl-table__hcell rl-num">
+            {detail ? `${fmt(detail.children.length)} total` : ""}
+          </span>
         </div>
         {!detail ? (
           <div style={{ padding: "13px 16px", fontSize: 12.5, color: "var(--color-ink-subtle)" }}>
@@ -555,31 +591,22 @@ function ScopeDetailPane({
             )}
           </div>
         ) : (
-          detail.children.map((c, i) => (
+          detail.children.map((c) => (
             <button
               key={c.id}
               type="button"
               onClick={() => onPick(c.id)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                width: "100%",
-                textAlign: "left",
-                padding: "11px 16px",
-                border: "none",
-                borderBottom: i === detail.children.length - 1 ? "none" : "1px solid var(--color-divider)",
-                background: "none",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--color-ink)",
-              }}
+              className="rl-table__row rl-table__row--hoverable"
+              style={{ gridTemplateColumns: "2fr 1fr 1fr", cursor: "pointer" }}
             >
-              <span style={{ flex: 1 }}>{c.name}</span>
-              <span style={{ fontSize: 11.5, color: "var(--color-ink-subtle)" }}>
-                {LEVEL_LABEL[c.level]} →
+              <span className="rl-table__cell" style={{ fontWeight: 600 }}>
+                {c.name}
+              </span>
+              <span className="rl-table__cell" style={{ color: "var(--color-ink-subtle)", fontSize: 12.5 }}>
+                {LEVEL_LABEL[c.level]}
+              </span>
+              <span className="rl-table__cell rl-table__cell--right" style={{ fontSize: 11.5, color: "var(--color-ink-subtle)" }}>
+                Open →
               </span>
             </button>
           ))
@@ -632,29 +659,12 @@ function CreateScopeDialog({
       role="dialog"
       aria-modal="true"
       aria-label={`Add a ${LEVEL_LABEL[level].toLowerCase()} under ${parent.name}`}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(12,19,34,0.45)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 80,
-        padding: 20,
-      }}
+      className="rl-dialog-scrim"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
-      <div
-        style={{
-          background: "var(--color-card)",
-          borderRadius: 16,
-          padding: "20px 20px 18px",
-          width: 400,
-          maxWidth: "100%",
-        }}
-      >
+      <div className="rl-dialog rl-dialog--form" style={{ width: 400 }}>
         <div className="rl-overline">New scope</div>
         <h2 style={{ fontSize: 16, fontWeight: 800, marginTop: 6 }}>
           Add a {LEVEL_LABEL[level].toLowerCase()} under {parent.name}
@@ -664,6 +674,20 @@ function CreateScopeDialog({
           <strong style={{ color: "var(--color-ink)" }}>{LEVEL_LABEL[level].toLowerCase()}</strong>{" "}
           inside {parent.name}.
         </p>
+        <div
+          style={{
+            background: "var(--color-canvas)",
+            borderRadius: 10,
+            padding: "9px 12px",
+            fontSize: 11.5,
+            color: "var(--color-ink-subtle)",
+            lineHeight: 1.5,
+            marginTop: 10,
+          }}
+        >
+          Published {LEVEL_LABEL[parent.level].toLowerCase()} content will inherit down to this{" "}
+          {LEVEL_LABEL[level].toLowerCase()} automatically.
+        </div>
         <form
           style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}
           onSubmit={(e) => {
@@ -709,7 +733,7 @@ function CreateScopeDialog({
               disabled={busy || name.trim().length === 0}
               style={{
                 height: 44,
-                flex: 2,
+                flex: 1.3,
                 background: "var(--color-primary)",
                 color: "#ffffff",
                 border: "none",

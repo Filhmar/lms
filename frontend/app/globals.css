@@ -90,6 +90,14 @@ body {
   }
 }
 
+/* Desktop column (lrn-a): pages that opt in via AppShell wide get the
+   ~1200px dashboard width at ≥1080px; every other breakpoint unchanged. */
+@media (min-width: 1080px) {
+  .app-shell__content--wide {
+    max-width: 1200px;
+  }
+}
+
 /* ---------- shared page primitives ---------- */
 
 .page-body {

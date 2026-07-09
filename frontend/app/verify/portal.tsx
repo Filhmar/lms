@@ -315,6 +315,13 @@ export function PortalFrame({ c, children }: { c: PortalColors; children: ReactN
           .portal-page { background: var(--pv-desk); padding: 26px 16px; }
           .portal-card { max-width: 460px; flex: 0 0 auto; min-height: 520px; border-radius: 16px; box-shadow: 0 8px 28px rgba(20, 30, 55, 0.10); padding: 18px; }
         }
+        .portal-facts { display: flex; flex-direction: column; gap: 8px; }
+        /* auth-c desktop: the result card widens (content ~760) and the
+           fact list flows into two columns */
+        @media (min-width: 1080px) {
+          .portal-card { max-width: 720px; padding: 22px 24px; }
+          .portal-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 28px; }
+        }
         @media print {
           body * { visibility: hidden; }
           .print-area, .print-area * { visibility: visible; }

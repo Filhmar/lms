@@ -5,6 +5,7 @@ import "@rl/ui/styles.css";
 import "./globals.css";
 import { SessionProvider } from "@/lib/session";
 import { SwUpdate } from "@/components/sw-update";
+import { GlobalHotkeys } from "@/lib/hotkeys";
 
 const archivo = Archivo({
   subsets: ["latin"],
@@ -42,7 +43,10 @@ export default function RootLayout({
           disable={process.env.NODE_ENV === "development"}
           reloadOnOnline={false}
         >
-          <SessionProvider>{children}</SessionProvider>
+          <SessionProvider>
+            {children}
+            <GlobalHotkeys />
+          </SessionProvider>
           <SwUpdate />
         </SerwistProvider>
       </body>

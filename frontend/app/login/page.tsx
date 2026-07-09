@@ -86,16 +86,9 @@ export default function LoginPage() {
   }
 
   return (
-    <main
-      style={{
-        maxWidth: 380,
-        margin: "0 auto",
-        minHeight: "100dvh",
-        padding: "36px 20px 24px",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div className="login-page">
+      <style>{loginCss}</style>
+      <main className="login-card">
       {!online ? (
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
           <Chip tone="on-device" size="compact" icon={<Icon name="no-signal" size={12} />}>
@@ -284,6 +277,17 @@ export default function LoginPage() {
       >
         First time on this phone? You&rsquo;ll need a connection once to set it up.
       </p>
-    </main>
+      </main>
+    </div>
   );
 }
+
+/* Phone layout unchanged; at ≥720px the form becomes the auth-a card
+   (radius 18, login shadow from the §2.11 whitelist) on the canvas. */
+const loginCss = `
+.login-card{max-width:380px;margin:0 auto;min-height:100dvh;padding:36px 20px 24px;display:flex;flex-direction:column;width:100%;}
+@media (min-width:720px){
+  .login-page{min-height:100dvh;display:flex;align-items:flex-start;justify-content:center;padding:56px 16px 32px;}
+  .login-card{min-height:0;max-width:420px;width:100%;margin:0;background:var(--color-card);border:1px solid var(--color-border);border-radius:18px;box-shadow:var(--shadow-login);padding:26px;}
+}
+`;

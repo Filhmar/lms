@@ -21,6 +21,7 @@ import { PreviewShell } from "@/components/preview";
 import * as copy from "@/lib/copy";
 import { exam } from "@/lib/fixtures";
 import { useDemo, useOnline } from "@/lib/demo";
+import { useDesktop } from "@/lib/hotkeys";
 import { initialsOf, RequireAuth, useSession } from "@/lib/session";
 
 const EYEBROW: React.CSSProperties = {
@@ -124,6 +125,7 @@ function HomeScreen() {
   const online = useOnline();
   const { iosMode } = useDemo();
   const { user } = useSession();
+  const desktop = useDesktop();
 
   const shortName = user ? (user.fullName.split(/\s+/)[0] ?? user.fullName) : "";
 
@@ -194,8 +196,34 @@ function HomeScreen() {
     </Link>
   );
 
+  /* d3c — the only escalation allowed on home, offline + action helps */
+  const offlineBanner = !online ? (
+    <div
+      role="alert"
+      style={{
+        background: "var(--color-attention-bg)",
+        border: "1.5px solid var(--color-danger-border)",
+        borderRadius: 14,
+        padding: "11px 13px",
+        display: "flex",
+        gap: 10,
+        alignItems: "flex-start",
+      }}
+    >
+      <span style={{ color: "var(--color-attention-fg)", display: "inline-flex", marginTop: 1 }}>
+        <Icon name="attention" size={16} />
+      </span>
+      <span
+        style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.5, color: "var(--color-attention-fg)" }}
+      >
+        Yesterday&rsquo;s exam is still waiting to send. Connect to Wi-Fi to finish — your
+        answers are safe.
+      </span>
+    </div>
+  ) : null;
+
   return (
-    <AppShell examBadge={1}>
+    <AppShell examBadge={1} wide>
       <style>{homeCss}</style>
       <span className="home-vh" aria-live="polite">
         {liveMsg}
@@ -210,33 +238,69 @@ function HomeScreen() {
 
       {hydrating ? (
         <HydrationBody />
+      ) : desktop ? (
+        /* lrn-a — 2-column dashboard at ≥1080px; mobile hierarchy preserved
+           (Continue → Today's exam → Courses → Badges), laid out honestly */
+        <div className="page-body home-desktop-grid">
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <ContinueCard online={online} demoted={!online} desktop />
+            <div style={{ ...EYEBROW, marginTop: 4 }}>My courses</div>
+            <HomeCourseRows
+              online={online}
+              desktop
+              filipinoDl={filipinoDl}
+              filipinoPct={filipinoPct}
+              onGetFilipino={() => {
+                setFilipinoDl("downloading");
+                setFilipinoPct(2);
+              }}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {offlineBanner}
+            <ExamCard pinned={!online} cta />
+            <div className="rl-card" style={{ padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <div style={{ ...EYEBROW, flex: 1 }}>My badges</div>
+                <Link
+                  href="/wallet"
+                  style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-primary)", textDecoration: "none" }}
+                >
+                  Wallet →
+                </Link>
+              </div>
+              <div
+                style={{ display: "flex", gap: 10, marginTop: 11 }}
+                aria-label="Badges: Science 8 earned, Math 8 earned, Filipino 8 in progress"
+              >
+                <BadgeDot label="S8" earned />
+                <BadgeDot label="M8" earned />
+                <BadgeDot label="F8" />
+              </div>
+            </div>
+            {!installDismissed ? (
+              <div className="rl-card" style={{ borderWidth: 1.5, padding: "13px 14px" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800 }}>
+                  Put Resilient-Learn on your home screen
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--color-ink-subtle)", marginTop: 2, lineHeight: 1.45 }}>
+                  One step — it makes offline learning reliable.
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 11 }}>
+                  <Button size="small" onClick={() => setInstallDismissed(true)}>
+                    Add to home screen
+                  </Button>
+                  <Button size="small" variant="quiet" onClick={() => setInstallDismissed(true)}>
+                    Maybe later
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
       ) : (
         <div className="page-body">
-          {/* d3c — the only escalation allowed on home, offline + action helps */}
-          {!online ? (
-            <div
-              role="alert"
-              style={{
-                background: "var(--color-attention-bg)",
-                border: "1.5px solid var(--color-danger-border)",
-                borderRadius: 14,
-                padding: "11px 13px",
-                display: "flex",
-                gap: 10,
-                alignItems: "flex-start",
-              }}
-            >
-              <span style={{ color: "var(--color-attention-fg)", display: "inline-flex", marginTop: 1 }}>
-                <Icon name="attention" size={16} />
-              </span>
-              <span
-                style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.5, color: "var(--color-attention-fg)" }}
-              >
-                Yesterday&rsquo;s exam is still waiting to send. Connect to Wi-Fi to finish — your
-                answers are safe.
-              </span>
-            </div>
-          ) : null}
+          {offlineBanner}
 
           {/* Exam day offline: exam card pins above Continue (d3c) */}
           {!online ? <ExamCard pinned /> : null}
@@ -247,81 +311,14 @@ function HomeScreen() {
 
           <div style={{ ...EYEBROW, marginTop: 4 }}>My courses</div>
 
-          {/* Math 8 — on this phone */}
-          <CourseRow
-            href="/courses/math-8"
-            title="Math 8"
-            sub="8 chapters · 88% done"
-            tileTint
-            trailing={
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  color: "var(--color-synced-fg)",
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                }}
-              >
-                <Icon name="check" size={13} />
-                On phone
-              </span>
-            }
-          />
-
-          {/* Filipino 8 — not downloaded; action grays offline, row stays readable */}
-          <CourseRow
-            href="/courses/filipino-8"
-            title="Filipino 8"
-            dimmed={!online && filipinoDl !== "done"}
-            sub={
-              filipinoDl === "done"
-                ? "9 chapters · 31 MB · on this phone"
-                : filipinoDl === "downloading"
-                  ? `${Math.round((filipinoPct / 100) * 31)} of 31 MB`
-                  : online
-                    ? "Not on this phone yet"
-                    : "Needs connection to download · 31 MB"
-            }
-            subFaint={!online && filipinoDl === "idle"}
-            progress={filipinoDl === "downloading" ? filipinoPct : undefined}
-            trailing={
-              filipinoDl === "done" ? (
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 5,
-                    color: "var(--color-synced-fg)",
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                  }}
-                >
-                  <Icon name="check" size={13} />
-                  On phone
-                </span>
-              ) : filipinoDl === "downloading" ? (
-                <span className="rl-num" style={{ color: "var(--color-primary)", fontSize: 11.5, fontWeight: 700 }}>
-                  {Math.round(filipinoPct)}%
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="home-row-action"
-                  disabled={!online}
-                  aria-label={online ? "Download Filipino 8 · 31 MB" : "Download Filipino 8 later — needs connection"}
-                  onClick={() => {
-                    setFilipinoDl("downloading");
-                    setFilipinoPct(2);
-                  }}
-                  style={{ color: online ? "var(--color-primary)" : "var(--color-ink-faint)" }}
-                >
-                  <Icon name="download" size={13} />
-                  {online ? "Get · 31 MB" : "Get later"}
-                </button>
-              )
-            }
+          <HomeCourseRows
+            online={online}
+            filipinoDl={filipinoDl}
+            filipinoPct={filipinoPct}
+            onGetFilipino={() => {
+              setFilipinoDl("downloading");
+              setFilipinoPct(2);
+            }}
           />
 
           {/* MY BADGES (p1c) */}
@@ -430,24 +427,39 @@ function HomeScreen() {
 
 /* ---------- Continue learning — top CTA never dead-ends offline ---------- */
 
-function ContinueCard({ online, demoted }: { online: boolean; demoted?: boolean }) {
+function ContinueCard({
+  online,
+  demoted,
+  desktop,
+}: {
+  online: boolean;
+  demoted?: boolean;
+  /** lrn-a hero: bigger type, "Resume reading" pill, "computer" noun. */
+  desktop?: boolean;
+}) {
+  const place = desktop ? "computer" : "phone";
   return (
     <Link
       href="/courses"
       className="home-continue"
-      style={{ opacity: demoted ? 0.92 : 1 }}
+      style={{ opacity: demoted ? 0.92 : 1, ...(desktop ? { padding: "18px 20px", borderRadius: 16 } : null) }}
     >
       <div className="home-continue__eyebrow">Continue learning</div>
-      <div style={{ fontSize: 15.5, fontWeight: 700, marginTop: 5 }}>
+      <div style={{ fontSize: desktop ? 18 : 15.5, fontWeight: 700, marginTop: 5 }}>
         Science 8 · Chapter 3: Weather disturbances
       </div>
       {online ? (
         <div style={{ display: "flex", alignItems: "center", gap: 9, marginTop: 10 }}>
-          <div className="home-continue__track">
+          <div className="home-continue__track" style={desktop ? { height: 8 } : undefined}>
             <div className="home-continue__fill" style={{ width: "62%" }} />
           </div>
           <span className="rl-num home-continue__pct">62%</span>
         </div>
+      ) : null}
+      {desktop ? (
+        <span className="home-continue__resume" aria-hidden>
+          Resume reading
+        </span>
       ) : null}
       <div
         style={{
@@ -460,15 +472,114 @@ function ContinueCard({ online, demoted }: { online: boolean; demoted?: boolean 
         }}
       >
         <Icon name="phone-check" size={12} />
-        {online ? "On this phone — works offline" : "On this phone — keep reviewing while offline"}
+        {online
+          ? `On this ${place} — works offline`
+          : `On this ${place} — keep reviewing while offline`}
       </div>
     </Link>
   );
 }
 
+/* ---------- course rows shared by the phone list and the desktop grid ---------- */
+
+function HomeCourseRows({
+  online,
+  filipinoDl,
+  filipinoPct,
+  onGetFilipino,
+  desktop,
+}: {
+  online: boolean;
+  filipinoDl: "idle" | "downloading" | "done";
+  filipinoPct: number;
+  onGetFilipino: () => void;
+  desktop?: boolean;
+}) {
+  const onDevice = desktop ? "On PC" : "On phone";
+  const place = desktop ? "computer" : "phone";
+  return (
+    <>
+      {/* Math 8 — downloaded */}
+      <CourseRow
+        href="/courses/math-8"
+        title="Math 8"
+        sub="8 chapters · 88% done"
+        tileTint
+        trailing={
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              color: "var(--color-synced-fg)",
+              fontSize: 11.5,
+              fontWeight: 700,
+            }}
+          >
+            <Icon name="check" size={13} />
+            {onDevice}
+          </span>
+        }
+      />
+
+      {/* Filipino 8 — not downloaded; action grays offline, row stays readable */}
+      <CourseRow
+        href="/courses/filipino-8"
+        title="Filipino 8"
+        dimmed={!online && filipinoDl !== "done"}
+        sub={
+          filipinoDl === "done"
+            ? `9 chapters · 31 MB · on this ${place}`
+            : filipinoDl === "downloading"
+              ? `${Math.round((filipinoPct / 100) * 31)} of 31 MB`
+              : online
+                ? `Not on this ${place} yet`
+                : "Needs connection to download · 31 MB"
+        }
+        subFaint={!online && filipinoDl === "idle"}
+        progress={filipinoDl === "downloading" ? filipinoPct : undefined}
+        trailing={
+          filipinoDl === "done" ? (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                color: "var(--color-synced-fg)",
+                fontSize: 11.5,
+                fontWeight: 700,
+              }}
+            >
+              <Icon name="check" size={13} />
+              {onDevice}
+            </span>
+          ) : filipinoDl === "downloading" ? (
+            <span className="rl-num" style={{ color: "var(--color-primary)", fontSize: 11.5, fontWeight: 700 }}>
+              {Math.round(filipinoPct)}%
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="home-row-action"
+              disabled={!online}
+              aria-label={online ? "Download Filipino 8 · 31 MB" : "Download Filipino 8 later — needs connection"}
+              onClick={onGetFilipino}
+              style={{ color: online ? "var(--color-primary)" : "var(--color-ink-faint)" }}
+            >
+              <Icon name="download" size={13} />
+              {online ? "Get · 31 MB" : "Get later"}
+            </button>
+          )
+        }
+      />
+    </>
+  );
+}
+
 /* ---------- Today's exam — chip mirrors the exam lifecycle ---------- */
 
-function ExamCard({ pinned }: { pinned?: boolean }) {
+function ExamCard({ pinned, cta }: { pinned?: boolean; cta?: boolean }) {
+  const showCta = pinned || cta;
   const card = (
     <div
       style={{
@@ -490,7 +601,7 @@ function ExamCard({ pinned }: { pinned?: boolean }) {
       <div style={{ fontSize: 12, color: "var(--color-ink-subtle)", marginTop: 2 }}>
         {pinned ? "Until 5 PM · 30 min · works with zero signal" : "Until 5 PM · 30 min"}
       </div>
-      {pinned ? (
+      {showCta ? (
         <Link
           href="/exams"
           className="rl-btn rl-btn--primary"
@@ -501,7 +612,7 @@ function ExamCard({ pinned }: { pinned?: boolean }) {
       ) : null}
     </div>
   );
-  if (pinned) return card;
+  if (showCta) return card;
   return (
     <Link
       href="/exams"
@@ -685,4 +796,7 @@ const homeCss = `
 .home-toast-btn{border:none;background:none;font-family:inherit;font-size:12.5px;font-weight:700;color:#8FB0FF;cursor:pointer;padding:6px 4px;}
 .home-hydration-card{background:var(--color-card);border:1.5px solid #ADC4F5;border-radius:14px;padding:13px 15px;}
 [data-theme="dark"] .home-hydration-card{border-color:#2C4270;}
+.home-desktop-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;padding:18px 24px;align-items:start;}
+.home-continue__resume{display:inline-flex;align-items:center;height:44px;padding:0 20px;background:#ffffff;color:var(--color-primary);border-radius:999px;font-size:14px;font-weight:800;margin-top:12px;}
+[data-theme="dark"] .home-continue__resume{background:#8FB0FF;color:#0C1322;}
 `;

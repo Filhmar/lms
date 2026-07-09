@@ -81,11 +81,22 @@ export function TabBar({ examBadge }: { examBadge?: number }) {
   );
 }
 
-/** Page shell for learner surfaces: content scrolls, tab bar pinned. */
-export function AppShell({ children, examBadge }: { children: ReactNode; examBadge?: number }) {
+/** Page shell for learner surfaces: content scrolls, tab bar pinned.
+    `wide` opts the page into the ≥1080px desktop column (~1200, lrn-a). */
+export function AppShell({
+  children,
+  examBadge,
+  wide,
+}: {
+  children: ReactNode;
+  examBadge?: number;
+  wide?: boolean;
+}) {
   return (
     <div className="app-shell">
-      <div className="app-shell__content">{children}</div>
+      <div className={`app-shell__content${wide ? " app-shell__content--wide" : ""}`}>
+        {children}
+      </div>
       <TabBar examBadge={examBadge} />
     </div>
   );

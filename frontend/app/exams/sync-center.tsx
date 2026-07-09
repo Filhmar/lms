@@ -120,10 +120,13 @@ export function SyncCenterContent({
   eng,
   onSendNow,
   showTitle = true,
+  device = "phone",
 }: {
   eng: EngineState;
   onSendNow: () => void;
   showTitle?: boolean;
+  /** Device noun — "computer" on lab machines (desktop spec §6). */
+  device?: "phone" | "computer";
 }) {
   const offline = !eng.online;
   const rows = buildRows(eng);
@@ -140,7 +143,7 @@ export function SyncCenterContent({
     <div>
       {showTitle ? <div style={{ fontSize: 16, fontWeight: 800 }}>Sync Center</div> : null}
       <div style={{ fontSize: 12, color: "var(--color-ink-subtle)", marginTop: 2 }}>
-        This phone · last sent to school: {fmtLastSync(eng.outbox.lastSentMs, nowMs)}
+        This {device} · last sent to school: {fmtLastSync(eng.outbox.lastSentMs, nowMs)}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 13 }}>
         {rows.length === 0 ? (

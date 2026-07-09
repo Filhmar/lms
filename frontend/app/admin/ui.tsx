@@ -5,15 +5,28 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { Icon, ScopeBreadcrumb, SyncPill } from "@rl/ui";
+import { AdminRail } from "./rail";
 
 export const MONO = "ui-monospace, Menlo, monospace";
 
-/** Full-height canvas with a centered 1040px content column. */
+/**
+ * Full-height canvas with a centered content column. At ≥1080px the 72px
+ * admin nav rail docks on the left and the column widens to the desktop
+ * cap (~1200); below that nothing changes.
+ */
 export function AdminShell({ topBar, children }: { topBar?: ReactNode; children: ReactNode }) {
   return (
-    <div style={{ minHeight: "100dvh", background: "var(--color-canvas)" }}>
-      {topBar}
-      <main style={{ maxWidth: 1040, margin: "0 auto" }}>{children}</main>
+    <div style={{ minHeight: "100dvh", background: "var(--color-canvas)", display: "flex" }}>
+      <a href="#admin-main" className="rl-skiplink">
+        Skip to content
+      </a>
+      <AdminRail />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {topBar}
+        <main id="admin-main" style={{ maxWidth: 1200, margin: "0 auto" }}>
+          {children}
+        </main>
+      </div>
     </div>
   );
 }
@@ -41,7 +54,7 @@ export function AdminTopBar({
     <div style={{ background: "var(--color-card)", borderBottom: "1px solid var(--color-border)" }}>
       <div
         style={{
-          maxWidth: 1040,
+          maxWidth: 1200,
           margin: "0 auto",
           display: "flex",
           alignItems: "center",
