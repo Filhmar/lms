@@ -67,6 +67,18 @@ describe("loadConfig", () => {
     );
   });
 
+  it("rejects OTP_DELIVERY_DRIVER=http without SMS_HTTP_API_KEY", async () => {
+    process.env.OTP_DELIVERY_DRIVER = "http";
+    process.env.SMS_HTTP_URL = "https://sms.example.ph";
+    process.env.SMS_HTTP_API_KEY = "";
+
+    const { loadConfig } = await import("./config.js");
+
+    expect(() => loadConfig()).toThrow(
+      /SMS_HTTP_API_KEY: required when OTP_DELIVERY_DRIVER=http/,
+    );
+  });
+
   it("rejects OTP_DELIVERY_DRIVER=usapp without USAPP_BASE_URL", async () => {
     process.env.OTP_DELIVERY_DRIVER = "usapp";
     process.env.USAPP_BASE_URL = "";
@@ -97,5 +109,26 @@ describe("loadConfig", () => {
     const { loadConfig } = await import("./config.js");
 
     expect(() => loadConfig()).toThrow(/OTP_DELIVERY_DRIVER/);
+  });
+
+  it("accepts the default mock driver with no OTP credentials set", async () => {
+    // OTP_DELIVERY_DRIVER is a plain z.enum(...).default("mock"), not
+    // optionalEnv-wrapped, so "" would fail validation outright — set it
+    // explicitly to "mock" (the value `.default()` would produce) rather
+    // than relying on it being unset.
+    process.env.OTP_DELIVERY_DRIVER = "mock";
+    process.env.SMS_HTTP_URL = "";
+    process.env.SMS_HTTP_API_KEY = "";
+    process.env.USAPP_BASE_URL = "";
+    process.env.USAPP_API_KEY = "";
+
+    const { loadConfig } = await import("./config.js");
+
+    // Zod runs before the JWT key-file check, and BASE_ENV points the key
+    // paths at /nonexistent/..., so a credential-free `mock` config must
+    // reach — and fail at — the key-file check, not at schema validation.
+    // Throwing here (rather than an OTP_DELIVERY_DRIVER / SMS_HTTP_* /
+    // USAPP_* validation message) is the proof that Zod accepted the config.
+    expect(() => loadConfig()).toThrow(/JWT key not found/);
   });
 });

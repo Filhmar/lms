@@ -39,8 +39,13 @@ import { OBJECT_STORAGE } from "./storage/object-storage.port";
             return usapp;
           case "http":
             return http;
-          default:
+          case "mock":
             return mock;
+          default: {
+            // A new driver in the enum must add a case above, or this stops compiling.
+            const unreachable: never = config.config.OTP_DELIVERY_DRIVER;
+            throw new Error(`Unhandled OTP_DELIVERY_DRIVER: ${String(unreachable)}`);
+          }
         }
       },
       inject: [ConfigService, MockDriver, HttpSmsDriver, UsappDriver],
