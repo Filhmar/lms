@@ -1,17 +1,17 @@
-import { BadGatewayException, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { maskPhone } from "@rl/schemas";
 import { ConfigService } from "../config";
-import type { SmsPort } from "./sms.port";
+import { DeliveryUnavailableError, type OtpDeliveryPort } from "./otp-delivery.port";
 
 /**
  * Generic HTTP SMS gateway driver: POST {to, message} as JSON with a bearer
  * key. Config (SMS_HTTP_URL / SMS_HTTP_API_KEY) is validated required at boot
- * when SMS_DRIVER=http. 5s timeout — an SMS gateway must never hold a request
+ * when the driver is `http`. 5s timeout — a gateway must never hold a request
  * hostage.
  */
 @Injectable()
-export class HttpSmsDriver implements SmsPort {
-  private readonly logger = new Logger("HttpSms");
+export class HttpSmsDriver implements OtpDeliveryPort {
+  private readonly logger = new Logger("HttpSmsOtpDelivery");
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -35,9 +35,7 @@ export class HttpSmsDriver implements SmsPort {
       this.logger.error(
         `SMS to ${maskPhone(phone)} did not go through: ${err instanceof Error ? err.message : String(err)}`,
       );
-      throw new BadGatewayException(
-        "We couldn't send the SMS right now — try again in a few minutes.",
-      );
+      throw new DeliveryUnavailableError();
     }
   }
 }

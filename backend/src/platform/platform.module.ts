@@ -1,18 +1,19 @@
 import { Global, Module } from "@nestjs/common";
 import { ConfigService } from "./config";
 import { HealthController } from "./health.controller";
+import { HttpSmsDriver } from "./otp-delivery/http-sms.driver";
+import { MockDriver } from "./otp-delivery/mock.driver";
+import { OTP_DELIVERY_PORT, type OtpDeliveryPort } from "./otp-delivery/otp-delivery.port";
+import { UsappDriver } from "./otp-delivery/usapp.driver";
 import { PrismaService } from "./prisma.service";
 import { RedisService } from "./redis.service";
-import { HttpSmsDriver } from "./sms/http-sms.driver";
-import { MockSmsDriver } from "./sms/mock-sms.driver";
-import { SMS_PORT } from "./sms/sms.port";
 import { LocalFsStorage } from "./storage/local-fs.driver";
 import { OBJECT_STORAGE } from "./storage/object-storage.port";
 
 /**
  * Cross-cutting infrastructure: Zod-validated config (fail-fast), the shared
- * pg.Pool + PrismaClient, Redis, the ObjectStorage + Sms ports, and /health.
- * Global so feature modules never re-wire infrastructure.
+ * pg.Pool + PrismaClient, Redis, the ObjectStorage + OtpDelivery ports, and
+ * /health. Global so feature modules never re-wire infrastructure.
  */
 @Global()
 @Module({
@@ -22,15 +23,34 @@ import { OBJECT_STORAGE } from "./storage/object-storage.port";
     PrismaService,
     RedisService,
     { provide: OBJECT_STORAGE, useClass: LocalFsStorage },
-    MockSmsDriver,
+    MockDriver,
     HttpSmsDriver,
+    UsappDriver,
     {
-      provide: SMS_PORT,
-      useFactory: (config: ConfigService, mock: MockSmsDriver, http: HttpSmsDriver) =>
-        config.config.SMS_DRIVER === "http" ? http : mock,
-      inject: [ConfigService, MockSmsDriver, HttpSmsDriver],
+      provide: OTP_DELIVERY_PORT,
+      useFactory: (
+        config: ConfigService,
+        mock: MockDriver,
+        http: HttpSmsDriver,
+        usapp: UsappDriver,
+      ): OtpDeliveryPort => {
+        switch (config.config.OTP_DELIVERY_DRIVER) {
+          case "usapp":
+            return usapp;
+          case "http":
+            return http;
+          case "mock":
+            return mock;
+          default: {
+            // A new driver in the enum must add a case above, or this stops compiling.
+            const unreachable: never = config.config.OTP_DELIVERY_DRIVER;
+            throw new Error(`Unhandled OTP_DELIVERY_DRIVER: ${String(unreachable)}`);
+          }
+        }
+      },
+      inject: [ConfigService, MockDriver, HttpSmsDriver, UsappDriver],
     },
   ],
-  exports: [ConfigService, PrismaService, RedisService, OBJECT_STORAGE, SMS_PORT],
+  exports: [ConfigService, PrismaService, RedisService, OBJECT_STORAGE, OTP_DELIVERY_PORT],
 })
 export class PlatformModule {}

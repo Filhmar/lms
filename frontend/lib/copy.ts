@@ -1,3 +1,5 @@
+import type { OtpChannel } from "@rl/schemas";
+
 /**
  * Microcopy library — English, with Filipino samples.
  * Verbatim from the design's State Language spec. FIL strings are drafts
@@ -87,3 +89,28 @@ export const environment = {
   crossDeviceMerge:
     "Progress from your other device was added — nothing was lost.",
 } as const;
+
+/**
+ * Activation step 2, keyed by the channel the code actually went out over.
+ * Step 1 cannot know the channel yet — nothing has been requested — so its CTA
+ * stays neutral ("Send me the code").
+ */
+export const activation = {
+  usapp: {
+    sentPrefix: "We sent a 6-digit code to your Usapp app on",
+    codeHint: "Enter the 6 digits from your Usapp message.",
+    mismatch: "That code didn’t match — check your Usapp message and try again.",
+    resend: "Didn’t get it? Send it again",
+  },
+  sms: {
+    sentPrefix: "We texted a 6-digit code to",
+    codeHint: "Enter the 6 digits from the text message.",
+    mismatch: "That code didn’t match — check the text message and try again.",
+    resend: "Didn’t get the text? Send it again",
+  },
+} as const satisfies Record<OtpChannel, {
+  sentPrefix: string;
+  codeHint: string;
+  mismatch: string;
+  resend: string;
+}>;

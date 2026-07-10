@@ -11,6 +11,8 @@
     "build": "nest build",
     "start": "node dist/main",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prisma:generate": "prisma generate",
     "seed": "tsx scripts/seed.ts",
     "bootstrap": "tsx scripts/bootstrap.ts"
@@ -45,6 +47,7 @@
     "@types/pg-copy-streams": "^1.2.5",
     "prisma": "^7.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.7"
   }
 }

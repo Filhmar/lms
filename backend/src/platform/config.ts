@@ -33,27 +33,61 @@ const EnvSchema = z
      */
     VERIFY_PUBLIC_BASE: optionalEnv(z.string().min(1).optional())
       .transform((v) => (v ?? "http://localhost:3000/verify").replace(/\/+$/, "")),
-    /** SMS driver for phone-OTP activation: mock (logs the code) or http gateway. */
-    SMS_DRIVER: z.enum(["mock", "http"]).default("mock"),
+    /**
+     * Delivery channel for the phone-OTP activation code:
+     *   mock  — logs the code (development only)
+     *   http  — generic SMS gateway (SMS_HTTP_URL + SMS_HTTP_API_KEY)
+     *   usapp — Usapp tenant API (USAPP_BASE_URL + USAPP_API_KEY)
+     */
+    OTP_DELIVERY_DRIVER: z.enum(["mock", "http", "usapp"]).default("mock"),
     SMS_HTTP_URL: optionalEnv(z.url().optional()),
     SMS_HTTP_API_KEY: optionalEnv(z.string().min(1).optional()),
+    /** Usapp tenant API — base origin, raw API key, and per-request timeout. */
+    USAPP_BASE_URL: optionalEnv(z.url().optional()),
+    USAPP_API_KEY: optionalEnv(z.string().min(1).optional()),
+    USAPP_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   })
   .superRefine((env, ctx) => {
-    if (env.SMS_DRIVER === "http") {
-      if (!env.SMS_HTTP_URL) {
+    type DriverCredential =
+      | "SMS_HTTP_URL"
+      | "SMS_HTTP_API_KEY"
+      | "USAPP_BASE_URL"
+      | "USAPP_API_KEY";
+
+    // Not named `require` — this file compiles to CommonJS, where that shadows
+    // the module loader.
+    const demand = (key: DriverCredential) => {
+      if (!env[key]) {
         ctx.addIssue({
           code: "custom",
-          path: ["SMS_HTTP_URL"],
-          message: "required when SMS_DRIVER=http",
+          path: [key],
+          message: `required when OTP_DELIVERY_DRIVER=${env.OTP_DELIVERY_DRIVER}`,
         });
       }
-      if (!env.SMS_HTTP_API_KEY) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["SMS_HTTP_API_KEY"],
-          message: "required when SMS_DRIVER=http",
-        });
-      }
+    };
+
+    // The mock driver logs codes and delivers none. Reaching production with it
+    // selected -- most likely by not renaming SMS_DRIVER in a real .env file --
+    // is a silent, total activation outage. Refuse to boot instead.
+    // Staging sets NODE_ENV=production too (docker-compose.staging.yml), so it
+    // is covered by this rule and must configure a real driver.
+    if (env.NODE_ENV === "production" && env.OTP_DELIVERY_DRIVER === "mock") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["OTP_DELIVERY_DRIVER"],
+        message:
+          "must not be `mock` when NODE_ENV=production — it logs codes and delivers none. " +
+          "Set `usapp` (or `http`). Staging runs NODE_ENV=production too, so it needs a real driver.",
+      });
+    }
+
+    if (env.OTP_DELIVERY_DRIVER === "http") {
+      demand("SMS_HTTP_URL");
+      demand("SMS_HTTP_API_KEY");
+    }
+    if (env.OTP_DELIVERY_DRIVER === "usapp") {
+      demand("USAPP_BASE_URL");
+      demand("USAPP_API_KEY");
     }
   });
 

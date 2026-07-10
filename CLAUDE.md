@@ -93,9 +93,10 @@ Seeded logins: `admin@deped.gov.ph` / `ChangeMe!2026` (central_admin),
   fixtures/demo — they talk to `/api/v1` via `frontend/lib/api.ts` only.
 - Backend user lifecycle: admins create users (or CSV-import them) as
   `pending_activation` with a PH mobile; activation = phone OTP
-  (`SMS_DRIVER=mock` logs codes and returns `devCode` in development;
-  `http` posts to your SMS gateway). Role↔level invariant is enforced
-  (students/teachers at school, each admin at its level).
+  (`OTP_DELIVERY_DRIVER=mock` logs codes and returns `devCode` in development;
+  `http` posts to an SMS gateway; `usapp` posts to the Usapp tenant API, which
+  404s unless the number holds a registered Usapp account). Role↔level invariant
+  is enforced (students/teachers at school, each admin at its level).
 - Microcopy comes from `frontend/lib/copy.ts` (verbatim from the design's state
   language; never write "sync"/"server"/"error" in student-facing copy).
 - `/screens` is the review index of every implemented screen.

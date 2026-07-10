@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { Button, Field, Icon } from "@rl/ui";
 import type { ActivationRequestResponse, LoginResponse } from "@rl/schemas";
 import { ApiError, apiPost } from "@/lib/api";
+import { activation } from "@/lib/copy";
 import { homeRouteFor, useSession } from "@/lib/session";
 
 const MONO = "ui-monospace, Menlo, monospace";
@@ -103,6 +104,15 @@ export default function ActivatePage() {
   const matches = repeat === password && repeat.length > 0;
   const codeOk = /^\d{6}$/.test(code);
 
+  // `sms` until the request answers; step 1 never shows channel-specific copy.
+  // The API contract says `channel` is "usapp" | "sms", but the frontend and
+  // backend deploy independently: a backend that ships a new driver first must
+  // not crash this screen. Fall back to the neutral wording.
+  const t =
+    challenge && challenge.channel in activation
+      ? activation[challenge.channel]
+      : activation.sms;
+
   const repeatError = !attempted
     ? undefined
     : !matches
@@ -155,7 +165,7 @@ export default function ActivatePage() {
       setStep("done");
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) {
-        setConfirmError(err.message || "That code didn't match — check the text message and try again.");
+        setConfirmError(err.message || t.mismatch);
       } else if (err instanceof ApiError && err.status === 429) {
         setConfirmError(err.message || "That's a few tries in a row — wait a minute, then try again.");
       } else if (err instanceof ApiError) {
@@ -184,7 +194,7 @@ export default function ActivatePage() {
           <div className="rl-overline">STEP 1 OF 2 · ACCOUNT ACTIVATION</div>
           <h1 style={{ fontSize: 22, fontWeight: 800, marginTop: 8 }}>Activate your account</h1>
           <p style={{ fontSize: 13.5, color: "var(--color-ink-subtle)", lineHeight: 1.5, marginTop: 6 }}>
-            Your school created an account for you. Enter your email and we&rsquo;ll text a 6-digit
+            Your school created an account for you. Enter your email and we&rsquo;ll send a 6-digit
             code to the phone number on file.
           </p>
 
@@ -217,7 +227,7 @@ export default function ActivatePage() {
               disabled={busy || email.trim().length === 0}
               style={{ height: 52, fontSize: 15, fontWeight: 800 }}
             >
-              {busy ? "Sending the code…" : "Text me the code"}
+              {busy ? "Sending the code…" : "Send me the code"}
             </Button>
             <Link
               href="/login"
@@ -241,7 +251,7 @@ export default function ActivatePage() {
           <div className="rl-overline">STEP 2 OF 2 · ACCOUNT ACTIVATION</div>
           <h1 style={{ fontSize: 22, fontWeight: 800, marginTop: 8 }}>Enter the code, set your password</h1>
           <p style={{ fontSize: 13.5, color: "var(--color-ink-subtle)", lineHeight: 1.5, marginTop: 6 }}>
-            We texted a 6-digit code to{" "}
+            {t.sentPrefix}{" "}
             <strong style={{ color: "var(--color-ink)", fontFamily: MONO }}>{challenge.maskedPhone}</strong>
             . It works for the next {Math.max(1, Math.round(challenge.expiresInSec / 60))} minutes.
           </p>
@@ -282,7 +292,7 @@ export default function ActivatePage() {
               autoComplete="one-time-code"
               name="code"
               style={{ fontFamily: MONO, letterSpacing: "0.2em" }}
-              error={attempted && !codeOk ? "Enter the 6 digits from the text message." : undefined}
+              error={attempted && !codeOk ? t.codeHint : undefined}
             />
             <Field
               label="New password"
@@ -336,7 +346,7 @@ export default function ActivatePage() {
                 padding: 4,
               }}
             >
-              Didn&rsquo;t get the text? Send it again
+              {t.resend}
             </button>
           </form>
 

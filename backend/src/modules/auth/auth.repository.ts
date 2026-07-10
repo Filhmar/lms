@@ -46,23 +46,24 @@ export class AuthRepository {
 
   /* ------------------- Phone-OTP activation (auth.otp_requests) ------------------- */
 
-  /** Supersede: any prior unconsumed activation codes stop working. */
-  async consumeActivationOtps(userId: string): Promise<void> {
-    await this.prisma.client.otpRequest.updateMany({
-      where: { userId, purpose: ACTIVATION, consumedAt: null },
-      data: { consumedAt: new Date() },
-    });
-  }
-
-  createActivationOtp(input: {
+  /**
+   * Supersede every unconsumed code and issue a fresh one, atomically. Two
+   * separate statements could crash between them and leave the account with no
+   * valid code and no record of why.
+   */
+  async replaceActivationOtp(input: {
     userId: string;
     phone: string;
     codeHash: string;
     expiresAt: Date;
-  }): Promise<OtpRequest> {
-    return this.prisma.client.otpRequest.create({
-      data: { ...input, purpose: ACTIVATION },
-    });
+  }): Promise<void> {
+    await this.prisma.client.$transaction([
+      this.prisma.client.otpRequest.updateMany({
+        where: { userId: input.userId, purpose: ACTIVATION, consumedAt: null },
+        data: { consumedAt: new Date() },
+      }),
+      this.prisma.client.otpRequest.create({ data: { ...input, purpose: ACTIVATION } }),
+    ]);
   }
 
   /** Latest unconsumed activation code (expiry/attempts judged by the caller). */
