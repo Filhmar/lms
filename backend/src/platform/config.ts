@@ -69,12 +69,15 @@ const EnvSchema = z
     // The mock driver logs codes and delivers none. Reaching production with it
     // selected -- most likely by not renaming SMS_DRIVER in a real .env file --
     // is a silent, total activation outage. Refuse to boot instead.
+    // Staging sets NODE_ENV=production too (docker-compose.staging.yml), so it
+    // is covered by this rule and must configure a real driver.
     if (env.NODE_ENV === "production" && env.OTP_DELIVERY_DRIVER === "mock") {
       ctx.addIssue({
         code: "custom",
         path: ["OTP_DELIVERY_DRIVER"],
         message:
-          "must not be `mock` when NODE_ENV=production — it logs codes and delivers none. Set `usapp` (or `http`).",
+          "must not be `mock` when NODE_ENV=production — it logs codes and delivers none. " +
+          "Set `usapp` (or `http`). Staging runs NODE_ENV=production too, so it needs a real driver.",
       });
     }
 

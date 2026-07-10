@@ -1675,5 +1675,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 Neither of these belongs in a commit; both must happen before the first staging run.
 
-1. **Rename `SMS_DRIVER` to `OTP_DELIVERY_DRIVER`** in the real `.env.staging`, `.env.production`, and any deployed secret store, and add `USAPP_BASE_URL` + `USAPP_API_KEY`. The backend refuses to boot otherwise, by design.
+1. **Rename `SMS_DRIVER` to `OTP_DELIVERY_DRIVER`** in the real `.env.staging`, `.env.production`, and any deployed secret store, and add `USAPP_BASE_URL` + `USAPP_API_KEY`. The backend refuses to boot otherwise, by design — and because the variable defaults to `mock`, it also refuses to boot when `NODE_ENV=production` resolves to `mock`, which is what a forgotten rename produces.
+
+   **This applies to staging as well.** `docker-compose.staging.yml:17` sets `NODE_ENV=production`, so staging needs a real driver and real Usapp credentials. Only numbers registered on Usapp can activate there; the bootstrap central admin is seeded `active` with a password and is unaffected.
 2. **Add the backend's egress IP (or its CIDR) to the LMS tenant's `ipAllowlist`** in Usapp. Every send returns `403` until then, and the failure presents as a generic delivery outage — the `401/403` log line from Task 3 is what will tell you.

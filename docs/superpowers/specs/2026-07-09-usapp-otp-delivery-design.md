@@ -89,6 +89,19 @@ store **must be updated by hand**. The backend fails fast at boot with
 That fail-fast is deliberate and must not be softened: a silent fallback to the `mock`
 driver in production would log every OTP to stdout and deliver none of them.
 
+Because `OTP_DELIVERY_DRIVER` *defaults* to `mock`, a forgotten rename would otherwise boot
+cleanly and keep answering `200` while delivering nothing. The schema therefore also refuses
+to boot when `NODE_ENV=production` selects `mock`, whether explicitly or by falling through
+to the default.
+
+**Staging is covered by that rule.** `docker-compose.staging.yml:17` sets
+`NODE_ENV=production` (the `NODE_ENV` enum has no `staging` member), so staging must
+configure a real driver and real Usapp credentials. Accepted consequence: on staging, only
+phone numbers holding a registered Usapp account can complete activation — seeded demo
+learners with placeholder numbers cannot. The bootstrap central admin is created `active`
+with a password and never touches the OTP path, so administrative access to staging is
+unaffected.
+
 Implementation must not edit real `.env*` files — only the committed `.example` templates.
 
 ## 2. The port
