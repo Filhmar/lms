@@ -17,6 +17,8 @@ const MANAGED_ENV = [
   "JWT_PRIVATE_KEY_PATH",
   "JWT_PUBLIC_KEY_PATH",
   "STORAGE_DIR",
+  "ACCESS_TOKEN_TTL_SEC",
+  "REFRESH_TOKEN_TTL_SEC",
   "METRICS_PORT",
   "VERIFY_PUBLIC_BASE",
   "OTP_DELIVERY_DRIVER",
@@ -129,6 +131,62 @@ describe("loadConfig", () => {
     // reach — and fail at — the key-file check, not at schema validation.
     // Throwing here (rather than an OTP_DELIVERY_DRIVER / SMS_HTTP_* /
     // USAPP_* validation message) is the proof that Zod accepted the config.
+    expect(() => loadConfig()).toThrow(/JWT key not found/);
+  });
+
+  it("rejects the mock driver in production", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.OTP_DELIVERY_DRIVER = "mock";
+    process.env.SMS_HTTP_URL = "";
+    process.env.SMS_HTTP_API_KEY = "";
+    process.env.USAPP_BASE_URL = "";
+    process.env.USAPP_API_KEY = "";
+
+    const { loadConfig } = await import("./config.js");
+
+    expect(() => loadConfig()).toThrow(
+      /must not be .mock. when NODE_ENV=production/,
+    );
+  });
+
+  it("rejects an unset driver in production, because it defaults to mock", async () => {
+    // This is the case an operator actually hits: this branch renames
+    // SMS_DRIVER to OTP_DELIVERY_DRIVER, so a real .env.production that was
+    // never updated leaves OTP_DELIVERY_DRIVER unset -- beforeEach already
+    // deleted it above, and we deliberately do not set it here. Note:
+    // loadDotEnv() may separately fill it from a developer's real
+    // backend/.env, e.g. OTP_DELIVERY_DRIVER=mock -- that produces the same
+    // expected failure either way, since the schema default is also "mock".
+    process.env.NODE_ENV = "production";
+    process.env.SMS_HTTP_URL = "";
+    process.env.SMS_HTTP_API_KEY = "";
+    process.env.USAPP_BASE_URL = "";
+    process.env.USAPP_API_KEY = "";
+
+    const { loadConfig } = await import("./config.js");
+
+    expect(() => loadConfig()).toThrow(
+      /must not be .mock. when NODE_ENV=production/,
+    );
+  });
+
+  it("allows the mock driver outside production", async () => {
+    // NODE_ENV's enum is ["development", "test", "production"] -- there is no
+    // "staging" member, so "development" stands in for "outside production".
+    process.env.NODE_ENV = "development";
+    process.env.OTP_DELIVERY_DRIVER = "mock";
+    process.env.SMS_HTTP_URL = "";
+    process.env.SMS_HTTP_API_KEY = "";
+    process.env.USAPP_BASE_URL = "";
+    process.env.USAPP_API_KEY = "";
+
+    const { loadConfig } = await import("./config.js");
+
+    // Zod's EnvSchema.safeParse runs before the JWT key-file check, and
+    // BASE_ENV points the key paths at /nonexistent/..., so reaching -- and
+    // failing at -- the key-file check (rather than an OTP_DELIVERY_DRIVER
+    // validation message) is the proof that Zod accepted a `mock` driver
+    // outside production. The two error messages are mutually exclusive.
     expect(() => loadConfig()).toThrow(/JWT key not found/);
   });
 });

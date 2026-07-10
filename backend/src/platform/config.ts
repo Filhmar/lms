@@ -66,6 +66,18 @@ const EnvSchema = z
       }
     };
 
+    // The mock driver logs codes and delivers none. Reaching production with it
+    // selected -- most likely by not renaming SMS_DRIVER in a real .env file --
+    // is a silent, total activation outage. Refuse to boot instead.
+    if (env.NODE_ENV === "production" && env.OTP_DELIVERY_DRIVER === "mock") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["OTP_DELIVERY_DRIVER"],
+        message:
+          "must not be `mock` when NODE_ENV=production — it logs codes and delivers none. Set `usapp` (or `http`).",
+      });
+    }
+
     if (env.OTP_DELIVERY_DRIVER === "http") {
       demand("SMS_HTTP_URL");
       demand("SMS_HTTP_API_KEY");
