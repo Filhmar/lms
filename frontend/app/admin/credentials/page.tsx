@@ -238,19 +238,22 @@ function CredentialConsoleBody() {
         </div>
       ) : null}
 
-      {/* Main grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.7fr 1fr", gap: 12 }}>
+      {/* Main grid — registry + audit rail; phones (<720px) stack the
+          panes and the registry table pans inside its own card */}
+      <style>{credCss}</style>
+      <div className="cred-grid" style={{ display: "grid", gap: 12 }}>
         {/* Credentials table */}
         <div
+          className="cred-table"
           style={{
             background: "var(--color-card)",
             border: "1px solid var(--color-border)",
             borderRadius: 14,
-            overflow: "hidden",
             alignSelf: "start",
           }}
         >
           <div
+            className="cred-row"
             style={{
               display: "grid",
               gridTemplateColumns: COLUMNS,
@@ -278,6 +281,7 @@ function CredentialConsoleBody() {
           {rows.map((r, i) => (
             <div
               key={r.id}
+              className="cred-row"
               style={{
                 display: "grid",
                 gridTemplateColumns: COLUMNS,
@@ -662,3 +666,15 @@ function CredentialConsoleBody() {
     </div>
   );
 }
+
+/* Desktop layout as designed; phones (<720px) stack the two panes and
+   let the registry table pan horizontally inside its own card. */
+const credCss = `
+.cred-grid{grid-template-columns:1.7fr 1fr;}
+.cred-table{overflow:hidden;}
+@media (max-width:719px){
+  .cred-grid{grid-template-columns:1fr;}
+  .cred-table{overflow-x:auto;}
+  .cred-row{min-width:640px;}
+}
+`;

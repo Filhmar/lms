@@ -1157,6 +1157,21 @@ button.rl-table__hcell:focus-visible {
   padding: 0;
 }
 
+/* ---------- phones (<720px): the DSK DataTable keeps readable columns
+     and pans horizontally inside its own card — the page never overflows.
+     Scoped to real DataTables (they render a .rl-table__scroll body);
+     hand-made .rl-table shells (e.g. the hierarchy children list) keep
+     shrinking their fr tracks instead. ≥720px (incl. desktop) untouched. */
+
+@media (max-width: 719.98px) {
+  .rl-table:has(> .rl-table__scroll) { overflow-x: auto; }
+  .rl-table:has(> .rl-table__scroll) > .rl-table__head,
+  .rl-table:has(> .rl-table__scroll) > .rl-table__scroll > .rl-table__row {
+    min-width: 640px;
+  }
+  .rl-bulkbar { flex-wrap: wrap; }
+}
+
 /* ---------- reduced motion: hover/focus stay color/border only ---------- */
 
 @media (prefers-reduced-motion: reduce) {

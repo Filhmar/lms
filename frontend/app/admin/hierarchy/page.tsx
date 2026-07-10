@@ -410,7 +410,9 @@ function HierarchyBody({ query }: { query: string }) {
 
 const hierCss = `
 .hier-grid{display:grid;grid-template-columns:340px 1fr;}
+.hier-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
 @media (max-width:900px){.hier-grid{grid-template-columns:1fr;}.hier-grid>div:first-child{border-right:none;border-bottom:1px solid var(--color-border);min-height:0;}}
+@media (max-width:719px){.hier-stats{grid-template-columns:repeat(2,minmax(0,1fr));}}
 `;
 
 /* ------------------------------ detail pane ------------------------------ */
@@ -520,8 +522,8 @@ function ScopeDetailPane({
         </Link>
       </div>
 
-      {/* Live counts */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+      {/* Live counts — 4-across as designed; phones (<720px) stack 2×2 */}
+      <div className="hier-stats">
         <StatTile eyebrow="Users" value={u ? fmt(u.total) : "—"} />
         <StatTile eyebrow="Active" value={u ? fmt(u.active) : "—"} />
         <StatTile

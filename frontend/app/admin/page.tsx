@@ -165,15 +165,9 @@ function AdminHomeBody() {
         </div>
       ) : null}
 
-      {/* Stat card grid — live counts from /scopes/:id/stats */}
-      <div
-        style={{
-          padding: "16px 22px 0",
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 12,
-        }}
-      >
+      {/* Stat card grid — live counts from /scopes/:id/stats.
+          4-across as designed; phones (<720px) stack 2×2 via ahmCss. */}
+      <div className="ahm-stats">
         <StatCard
           eyebrow="Users in your scope"
           number={u ? fmt(u.total) : "—"}
@@ -294,6 +288,8 @@ function AdminHomeBody() {
 }
 
 const ahmCss = `
+.ahm-stats{padding:16px 22px 0;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
 .ahm-lower{padding:16px 22px 22px;display:grid;grid-template-columns:1fr;gap:12px;}
 @media (min-width:900px){.ahm-lower{grid-template-columns:1.4fr 1fr;}}
+@media (max-width:719px){.ahm-stats{grid-template-columns:repeat(2,minmax(0,1fr));}}
 `;

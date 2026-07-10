@@ -264,6 +264,7 @@ function ImportJobBody() {
 
   return (
     <div style={{ padding: "20px 22px", minHeight: 430 }}>
+      <style>{jobCss}</style>
       {/* Header row */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -323,8 +324,8 @@ function ImportJobBody() {
         />
       </div>
 
-      {/* Count cards — server truth */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginTop: 14 }}>
+      {/* Count cards — server truth. 4-across; phones (<720px) stack 2×2 */}
+      <div className="impjob-stats" style={{ marginTop: 14 }}>
         <CountCard eyebrow="Total rows" value={job ? fmt(total) : "—"} />
         <CountCard eyebrow="Created" value={job ? fmt(success) : "—"} tone="created" />
         <CountCard eyebrow="Rows to fix" value={job ? fmt(failed) : "—"} tone="failed" />
@@ -550,3 +551,9 @@ function EmptyCard({ title, body }: { title: string; body: string }) {
     </div>
   );
 }
+
+/* Desktop layout as designed; phones (<720px) stack the count cards 2×2. */
+const jobCss = `
+.impjob-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+@media (max-width:719px){.impjob-stats{grid-template-columns:repeat(2,minmax(0,1fr));}}
+`;

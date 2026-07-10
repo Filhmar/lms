@@ -32,6 +32,7 @@ const STEPS = ["Upload", "Check file", "Choose scope", "Confirm"] as const;
 function Stepper({ active }: { active: number /* 1-based; 5 = all done */ }) {
   return (
     <ol
+      className="imp-steps"
       style={{
         display: "flex",
         alignItems: "center",
@@ -99,6 +100,7 @@ function Stepper({ active }: { active: number /* 1-based; 5 = all done */ }) {
             {n < STEPS.length ? (
               <span
                 aria-hidden
+                className="imp-conn"
                 style={{
                   width: 56,
                   height: 2,
@@ -226,13 +228,14 @@ function ImportWizardBody() {
 
   return (
     <div style={{ padding: "20px 22px", minHeight: 480 }}>
+      <style>{impCss}</style>
       <Stepper active={activeStep} />
 
       {phase === "upload" ? (
         <div
+          className={checked?.problems ? "imp-two" : undefined}
           style={{
             display: "grid",
-            gridTemplateColumns: checked?.problems ? "1fr 1fr" : "1fr",
             gap: 12,
             maxWidth: checked?.problems ? undefined : 560,
           }}
@@ -368,7 +371,7 @@ function ImportWizardBody() {
       ) : null}
 
       {phase === "scope" && checked && !checked.problems ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="imp-two" style={{ display: "grid", gap: 12 }}>
           {/* Panel A — file check results */}
           <div style={panelStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
@@ -667,3 +670,15 @@ function ImportWizardBody() {
     </div>
   );
 }
+
+/* Desktop layout as designed; phones (<720px) wrap the stepper (its
+   connector lines drop out) and stack the two-pane grids. */
+const impCss = `
+.imp-two{grid-template-columns:1fr 1fr;}
+@media (max-width:719px){
+  .imp-steps{flex-wrap:wrap;row-gap:8px;}
+  .imp-conn{display:none;}
+  .imp-steps li{margin-right:14px;}
+  .imp-two{grid-template-columns:1fr;}
+}
+`;
