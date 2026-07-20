@@ -245,3 +245,14 @@ validate structure → save raw file to blob storage → enqueue background job 
 `202 Accepted` with a `job_id` and a status link. The worker does scope validation
 (closure table), sanitization, and **bulk COPY** insertion (not per-row INSERT), marking
 users `pending_activation`. Clients poll `GET /api/v1/provisioning/job/{job_id}`.
+
+<!-- youflow:start -->
+## YouFlow Project Tracking
+
+This repo is tracked in YouFlow (see `.youflow.json`). Two standing rules for every session here ??? both required:
+
+1. **Start of work.** Before anything else, run the YouFlow sync: call `list_my_work` and `list_notifications` via the YouFlow MCP, then tell the user what is on their plate and what is new.
+2. **Track your work as cards ??? automatically, not on request.** The moment you begin a feature, fix, chore, or any multi-step task: `create_card` in the `todo` column (plain-language title) as you start, `update_card` it to `in_progress`, `add_card_comment` at milestones (e.g. opening a PR), and `update_card` it to `done` when finished. Create the card yourself and announce it ??? do not defer it or wait to be asked. Skip only trivial one-off questions.
+
+Column ids are in `.youflow.json`; full protocol in `youflow://guide` ??Project Tracking. Write every title/description/comment in plain language (technical + marketing + management).
+<!-- youflow:end -->
